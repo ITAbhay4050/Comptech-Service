@@ -55,7 +55,6 @@ const Login = () => {
       setIsSubmitting(false);
     }
   };
-
   // Helper function to pre-fill credentials for demo
   const fillCredentials = (role: string) => {
     switch (role) {
@@ -127,7 +126,11 @@ const Login = () => {
             
             <div className="mt-4">
               <p className="text-center text-sm text-muted-foreground mb-2">
-                Don't have an account? <Link to="/register" className="text-blue-600 hover:underline">Register</Link>
+                Don't have an account? <Link to="/dealerregister" className="text-blue-600 hover:underline">Register</Link>
+
+              </p>
+               <p className="text-center text-sm text-muted-foreground mb-2">
+                Create Company? <Link to="/register" className="text-blue-600 hover:underline">Create Company</Link>
               </p>
               
               <div className="border-t pt-4 mt-4">

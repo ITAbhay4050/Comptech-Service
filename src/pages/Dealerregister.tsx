@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,19 +12,20 @@ import {
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
 
-const Register = () => {
+const DealerRegister = () => {
+  const [companies, setCompanies] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
-    contact_person: '',
+    email: '',
+    phone: '',
     address: '',
     city: '',
     state: '',
     country: '',
     pin_code: '',
-    contact_phone: '',
-    contact_email: '',
     gst_no: '',
     pan_no: '',
+    company: '',
     newPassword: '',
     confirmPassword: '',
   });
@@ -32,7 +33,21 @@ const Register = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  // Fetch companies for dropdown
+  useEffect(() => {
+    fetch('http://127.0.0.1:8000/api/register/company/')
+      .then((res) => res.json())
+      .then((data) => setCompanies(data))
+      .catch(() =>
+        toast({
+          title: 'Error',
+          description: 'Failed to load company list.',
+          variant: 'destructive',
+        })
+      );
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -50,7 +65,7 @@ const Register = () => {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/register/', {
+      const response = await fetch('http://127.0.0.1:8000/api/register/dealer/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,7 +78,7 @@ const Register = () => {
       if (response.ok) {
         toast({
           title: 'Registration Successful',
-          description: 'Company has been registered successfully.',
+          description: 'Dealer has been registered successfully.',
         });
         navigate('/login');
       } else {
@@ -90,27 +105,26 @@ const Register = () => {
         <Card className="rounded-2xl shadow-2xl border-none">
           <CardHeader>
             <CardTitle className="text-3xl font-extrabold text-center text-purple-700">
-              Company Registration
+              Dealer Registration
             </CardTitle>
             <CardDescription className="text-center text-gray-600">
-              Please fill in the form below to register your company.
+              Please fill in the form below to register as a dealer.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[
-                  { name: 'gst_no', label: 'GST Number' },
-                  { name: 'name', label: 'Company Name' },
-                  { name: 'contact_person', label: 'Contact Person' },
+                {[ 
+                  { name: 'name', label: 'Dealer Name' },
+                  { name: 'email', label: 'Email', type: 'email' },
+                  { name: 'phone', label: 'Phone' },
                   { name: 'address', label: 'Address' },
                   { name: 'city', label: 'City' },
                   { name: 'state', label: 'State' },
                   { name: 'country', label: 'Country' },
                   { name: 'pin_code', label: 'PIN Code' },
-                  { name: 'contact_phone', label: 'Phone' },
-                  { name: 'contact_email', label: 'Email', type: 'email' },
+                  { name: 'gst_no', label: 'GST Number' },
                   { name: 'pan_no', label: 'PAN Number' },
                 ].map((field) => (
                   <div key={field.name} className="space-y-1">
@@ -126,6 +140,25 @@ const Register = () => {
                     />
                   </div>
                 ))}
+
+                <div className="space-y-1">
+                  <Label htmlFor="company">Select Company</Label>
+                  <select
+                    id="company"
+                    name="company"
+                    value={formData.company}
+                    onChange={handleChange}
+                    className="w-full border rounded-md p-2"
+                    required
+                  >
+                    <option value="">-- Select Company --</option>
+                    {companies.map((comp: any) => (
+                      <option key={comp.id} value={comp.id}>
+                        {comp.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
@@ -179,4 +212,4 @@ const Register = () => {
   );
 };
 
-export default Register;
+export default DealerRegister;
