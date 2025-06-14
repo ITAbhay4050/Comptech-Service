@@ -30,10 +30,11 @@ const DealerRegister = () => {
     confirmPassword: '',
   });
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [showOtp, setShowOtp] = useState(false);
+  const [tempDealerData, setTempDealerData] = useState(null);
   const navigate = useNavigate();
 
-  // Fetch companies for dropdown
   useEffect(() => {
     fetch('http://127.0.0.1:8000/api/register/company/')
       .then((res) => res.json())
@@ -47,55 +48,96 @@ const DealerRegister = () => {
       );
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (formData.newPassword !== formData.confirmPassword) {
       toast({
         title: 'Password Mismatch',
-        description: 'New password and confirm password do not match.',
+        description: 'Passwords do not match.',
         variant: 'destructive',
       });
       return;
     }
 
-    setIsSubmitting(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/register/dealer/', {
+      const res = await fetch('http://127.0.0.1:8000/api/send-otp/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          password: formData.newPassword,
-        }),
+        body: JSON.stringify({ email: formData.email }),
       });
 
-      const data = await response.json();
-      if (response.ok) {
+      if (res.ok) {
+        setShowOtp(true);
+        setTempDealerData(formData);
         toast({
-          title: 'Registration Successful',
-          description: 'Dealer has been registered successfully.',
+          title: 'OTP Sent',
+          description: 'Please check your email for the OTP.',
         });
-        navigate('/login');
       } else {
         toast({
-          title: 'Registration Failed',
-          description: data.message || 'Please check your input.',
+          title: 'OTP Failed',
+          description: 'Could not send OTP.',
           variant: 'destructive',
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: 'Network Error',
-        description: 'Could not connect to the server.',
+        description: 'Failed to send OTP.',
         variant: 'destructive',
       });
-    } finally {
-      setIsSubmitting(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/verify-otp/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: tempDealerData.email, otp }),
+      });
+
+      if (res.ok) {
+        const registerRes = await fetch('http://127.0.0.1:8000/api/register/dealer/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...tempDealerData,
+            password: tempDealerData.newPassword,
+          }),
+        });
+
+        if (registerRes.ok) {
+          toast({
+            title: 'Success',
+            description: 'Dealer registered successfully!',
+          });
+          setTimeout(() => navigate('/login'), 2000); // wait 2 seconds before navigating
+        } else {
+          toast({
+            title: 'Error',
+            description: 'Registration failed.',
+            variant: 'destructive',
+          });
+        }
+      } else {
+        toast({
+          title: 'Invalid OTP',
+          description: 'OTP verification failed.',
+          variant: 'destructive',
+        });
+      }
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Something went wrong while verifying OTP.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -108,14 +150,13 @@ const DealerRegister = () => {
               Dealer Registration
             </CardTitle>
             <CardDescription className="text-center text-gray-600">
-              Please fill in the form below to register as a dealer.
+              Fill in the form to register as a dealer.
             </CardDescription>
           </CardHeader>
-
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[ 
+                {[
                   { name: 'name', label: 'Dealer Name' },
                   { name: 'email', label: 'Email', type: 'email' },
                   { name: 'phone', label: 'Phone' },
@@ -134,13 +175,12 @@ const DealerRegister = () => {
                       name={field.name}
                       type={field.type || 'text'}
                       placeholder={field.label}
-                      value={formData[field.name as keyof typeof formData]}
+                      value={formData[field.name]}
                       onChange={handleChange}
                       required
                     />
                   </div>
                 ))}
-
                 <div className="space-y-1">
                   <Label htmlFor="company">Select Company</Label>
                   <select
@@ -152,7 +192,7 @@ const DealerRegister = () => {
                     required
                   >
                     <option value="">-- Select Company --</option>
-                    {companies.map((comp: any) => (
+                    {companies.map((comp) => (
                       <option key={comp.id} value={comp.id}>
                         {comp.name}
                       </option>
@@ -161,6 +201,7 @@ const DealerRegister = () => {
                 </div>
               </div>
 
+              {/* Password Fields */}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label htmlFor="newPassword">New Password</Label>
@@ -168,7 +209,6 @@ const DealerRegister = () => {
                     id="newPassword"
                     name="newPassword"
                     type="password"
-                    placeholder="New Password"
                     value={formData.newPassword}
                     onChange={handleChange}
                     required
@@ -180,7 +220,6 @@ const DealerRegister = () => {
                     id="confirmPassword"
                     name="confirmPassword"
                     type="password"
-                    placeholder="Confirm Password"
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     required
@@ -188,21 +227,40 @@ const DealerRegister = () => {
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 rounded-xl transition duration-300"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Registering...' : 'Register'}
-              </Button>
+              {/* OTP Logic */}
+              {!showOtp ? (
+                <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                  Send OTP
+                </Button>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="otp">Enter OTP</Label>
+                    <Input
+                      id="otp"
+                      name="otp"
+                      type="text"
+                      placeholder="Enter OTP sent to email"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleVerifyOtp}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Verify & Register
+                  </Button>
+                </>
+              )}
 
-              <div className="mt-4 text-center text-sm">
-                <span className="text-muted-foreground">
-                  Already registered?{' '}
-                  <Link to="/login" className="text-blue-600 hover:underline">
-                    Login
-                  </Link>
-                </span>
+              <div className="text-center text-sm mt-4">
+                Already registered?{' '}
+                <Link to="/login" className="text-blue-600 hover:underline">
+                  Login
+                </Link>
               </div>
             </form>
           </CardContent>

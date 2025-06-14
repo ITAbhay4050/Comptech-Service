@@ -39,6 +39,8 @@ class Dealer(models.Model):
     pan_no = models.CharField(max_length=20, blank=True, null=True)
     password = models.CharField(max_length=128)  # Store hashed password
     created_at = models.DateTimeField(auto_now_add=True)
+    otp = models.CharField(max_length=6, blank=True, null=True)
+    is_verified = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.password.startswith('pbkdf2_'):
@@ -47,3 +49,12 @@ class Dealer(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.company.name})"
+    
+class LoginRecord(models.Model):
+    email = models.EmailField()
+    user_type = models.CharField(max_length=20, choices=[('dealer', 'Dealer'), ('company', 'Company')])
+    login_time = models.DateTimeField(auto_now_add=True)
+    success = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.email} - {self.user_type} - {'Success' if self.success else 'Failed'}"

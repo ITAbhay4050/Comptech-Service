@@ -36,53 +36,58 @@ const Register = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (formData.newPassword !== formData.confirmPassword) {
+  if (!email || !password) {
+    toast({
+      title: "Error",
+      description: "Please enter both email and password",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setIsSubmitting(true);
+
+  try {
+    const response = await fetch('http://127.0.0.1:8000/api/login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
       toast({
-        title: 'Password Mismatch',
-        description: 'New password and confirm password do not match.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/register/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          password: formData.newPassword,
-        }),
+        title: "Login Successful",
+        description: `Logged in as ${data.user_type}`,
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        toast({
-          title: 'Registration Successful',
-          description: 'Company has been registered successfully.',
-        });
-        navigate('/login');
-      } else {
-        toast({
-          title: 'Registration Failed',
-          description: data.message || 'Please check your input.',
-          variant: 'destructive',
-        });
-      }
-    } catch (error) {
+      // Save user type and redirect
+      localStorage.setItem('user_type', data.user_type);
+      localStorage.setItem('user_email', email);
+
+      // Navigate to dashboard or conditional path
+      navigate('/dashboard');
+    } else {
       toast({
-        title: 'Network Error',
-        description: 'Could not connect to the server.',
-        variant: 'destructive',
+        title: "Login Failed",
+        description: data.message || "Invalid credentials",
+        variant: "destructive",
       });
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  } catch (error) {
+    toast({
+      title: "Server Error",
+      description: "Server error occurred. Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 px-4 py-8 animate-fade-in">
