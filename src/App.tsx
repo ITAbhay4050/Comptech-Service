@@ -39,13 +39,13 @@ const App = () => (
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="/dealerregister" element={<DealerRegister />} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
 
-            {/* Default redirect to dashboard */}
+            {/* Redirect root to dashboard */}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            {/* Protected routes - all authenticated users */}
+            {/* Dashboard and common authenticated routes */}
             <Route element={<PrivateRoute />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/machines" element={<Machines />} />
@@ -55,7 +55,7 @@ const App = () => (
               <Route path="/profile" element={<Profile />} />
             </Route>
 
-            {/* Users - for admins only */}
+            {/* Admin-only routes (Application, Company, Dealer Admins) */}
             <Route
               element={
                 <PrivateRoute
@@ -68,44 +68,27 @@ const App = () => (
               }
             >
               <Route path="/users" element={<Users />} />
-            </Route>
-
-            {/* Companies and Dealers - for all admins */}
-            <Route
-              element={
-                <PrivateRoute
-                  allowedRoles={[
-                    UserRole.APPLICATION_ADMIN,
-                    UserRole.COMPANY_ADMIN,
-                    UserRole.DEALER_ADMIN,
-                  ]}
-                />
-              }
-            >
               <Route path="/companies" element={<Companies />} />
               <Route path="/dealers" element={<Dealers />} />
             </Route>
 
-            {/* Machine Installation - for employees and admins */}
+            {/* Installation - for Admins and Employees */}
             <Route
               element={
                 <PrivateRoute
                   allowedRoles={[
+                    UserRole.APPLICATION_ADMIN,
+                    UserRole.COMPANY_ADMIN,
                     UserRole.COMPANY_EMPLOYEE,
                     UserRole.DEALER_EMPLOYEE,
-                    UserRole.COMPANY_ADMIN,
-                    UserRole.APPLICATION_ADMIN,
                   ]}
                 />
               }
             >
-              <Route
-                path="/machine-installation"
-                element={<MachineInstallation />}
-              />
+              <Route path="/machine-installation" element={<MachineInstallation />} />
             </Route>
 
-            {/* 404 Not Found */}
+            {/* 404 Page */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

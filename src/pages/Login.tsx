@@ -2,17 +2,23 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
-import { useAuth } from '@/context/AuthContext'; // ✅ IMPORT
+import { useAuth } from '@/context/AuthContext';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { setUser } = useAuth(); // ✅ Get setUser from context
+  const { setUser } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +33,7 @@ const Login = () => {
     }
 
     setIsSubmitting(true);
+
     try {
       const response = await fetch('http://127.0.0.1:8000/api/login/', {
         method: 'POST',
@@ -39,31 +46,30 @@ const Login = () => {
       const data = await response.json();
 
       if (response.ok) {
-        toast({
-          title: 'Login Successful',
-          description: `Logged in as ${data.user_type}`,
-        });
-
-        // ✅ Save user globally
         const role =
-          data.user_type === 'dealer' ? 'DEALER_ADMIN' :
-          data.user_type === 'company' ? 'COMPANY_ADMIN' :
-          'UNKNOWN';
+          data.user_type === 'dealer'
+            ? 'DEALER_ADMIN'
+            : data.user_type === 'company'
+            ? 'COMPANY_ADMIN'
+            : 'UNKNOWN';
 
+        // Save user info globally (context) and optionally in localStorage
         setUser({
           email: email,
           role: role,
-          companyId: data.company_id || null, // if your backend sends it
+          companyId: data.company_id || null,
         });
 
-        // ✅ Redirect based on role
-        if (data.user_type === 'dealer') {
-          navigate('/dashboard');
-        } else if (data.user_type === 'company') {
-          navigate('/dashboard');
-        } else {
-          navigate('/dashboard');
-        }
+        localStorage.setItem('userType', data.user_type);
+        localStorage.setItem('userEmail', email);
+
+        toast({
+          title: 'Login Successful',
+          description: `Welcome, ${role.replace('_', ' ')}`,
+        });
+
+        // Redirect all user types to the same dashboard
+        navigate('/dashboard');
       } else {
         toast({
           title: 'Login Failed',
@@ -120,12 +126,15 @@ const Login = () => {
                 {isSubmitting ? 'Signing in...' : 'Sign In'}
               </Button>
             </form>
+
             <div className="mt-4 text-center text-sm">
               <p>
-                Don't have an account? <Link to="/dealerregister" className="text-blue-600">Register</Link>
+                Don't have an account?{' '}
+                <Link to="/dealerregister" className="text-blue-600">Register</Link>
               </p>
               <p>
-                Create Company? <Link to="/register" className="text-blue-600">Create Company</Link>
+                Create Company?{' '}
+                <Link to="/register" className="text-blue-600">Create Company</Link>
               </p>
             </div>
           </CardContent>

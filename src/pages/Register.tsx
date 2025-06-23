@@ -15,14 +15,13 @@ import { toast } from '@/components/ui/use-toast';
 const Register = () => {
   const [formData, setFormData] = useState({
     name: '',
-    contact_person: '',
     address: '',
     city: '',
     state: '',
     country: '',
     pin_code: '',
-    contact_phone: '',
-    contact_email: '',
+    phone: '',      // ✅ Updated field
+    email: '',      // ✅ Updated field
     gst_no: '',
     pan_no: '',
     newPassword: '',
@@ -56,14 +55,13 @@ const Register = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: formData.name,
-          contact_person: formData.contact_person,
           address: formData.address,
           city: formData.city,
           state: formData.state,
           country: formData.country,
           pin_code: formData.pin_code,
-          contact_phone: formData.contact_phone,
-          contact_email: formData.contact_email,
+          phone: formData.phone,
+          email: formData.email,
           gst_no: formData.gst_no,
           pan_no: formData.pan_no,
           password: formData.newPassword,
@@ -115,14 +113,13 @@ const Register = () => {
                 {[
                   { name: 'gst_no', label: 'GST Number' },
                   { name: 'name', label: 'Company Name' },
-                  { name: 'contact_person', label: 'Contact Person' },
                   { name: 'address', label: 'Address' },
                   { name: 'city', label: 'City' },
                   { name: 'state', label: 'State' },
                   { name: 'country', label: 'Country' },
                   { name: 'pin_code', label: 'PIN Code' },
-                  { name: 'contact_phone', label: 'Phone' },
-                  { name: 'contact_email', label: 'Email', type: 'email' },
+                  { name: 'phone', label: 'Phone' },               // ✅ Updated
+                  { name: 'email', label: 'Email', type: 'email' }, // ✅ Updated
                   { name: 'pan_no', label: 'PAN Number' },
                 ].map((field) => (
                   <div key={field.name} className="space-y-1">

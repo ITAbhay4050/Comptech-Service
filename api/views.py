@@ -17,18 +17,27 @@ class RegisterCompany(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
+        email = request.data.get('email')
+
+        # 🔒 Check for duplicate email
+        if Company.objects.filter(email=email).exists():
+            return Response({
+                "message": "A company with this email already exists."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ Create serializer
         serializer = CompanySerializer(data=request.data)
+
         if serializer.is_valid():
             company = serializer.save()
 
-            # ✅ Send welcome email
             subject = "🎉 Welcome to Comptech Equipment LIMITED!"
             message = f"""
-Dear {company.contact_person},
+Dear {company.name},
 
 Welcome aboard! 🎉
 
-We are thrilled to welcome you and your company **{company.name}** to the Comptech Equipment LIMITED family.
+We are thrilled to welcome your company **{company.name}** to the Comptech Equipment LIMITED family.
 
 Your registration has been successfully completed and your company profile is now active in our system.
 
@@ -45,12 +54,13 @@ Team Comptech Equipment LIMITED
 🌐 www.comptechequipment.com  
 📞 +91-XXXXXXXXXX
 """
+
             try:
                 send_mail(
                     subject,
                     message,
-                    "it02comptech@gmail.com",  # from_email
-                    [company.contact_email],   # recipient
+                    "it02comptech@gmail.com",
+                    [company.email],
                     fail_silently=False
                 )
             except Exception as e:
@@ -65,8 +75,8 @@ Team Comptech Equipment LIMITED
                 "data": serializer.data
             }, status=status.HTTP_201_CREATED)
 
+        # ❌ Only if serializer is invalid
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # ✅ Dealer Registration (after OTP verification)
 class RegisterDealer(APIView):
@@ -140,26 +150,43 @@ class LoginView(APIView):
         email = request.data.get('email')
         password = request.data.get('password')
 
+        print("Login attempt from:", email)
+
         # Try Dealer login
         try:
             dealer = Dealer.objects.get(email=email)
             if check_password(password, dealer.password):
                 LoginRecord.objects.create(email=email, user_type='dealer', success=True)
-                return Response({"message": "Login successful", "user_type": "dealer"}, status=status.HTTP_200_OK)
+                return Response({
+                    "message": "Login successful",
+                    "user_type": "dealer",
+                    "dealer_id": dealer.id,
+                    "company_id": dealer.company.id if dealer.company else None
+                }, status=status.HTTP_200_OK)
             else:
                 LoginRecord.objects.create(email=email, user_type='dealer', success=False)
                 return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
         except Dealer.DoesNotExist:
             pass
+        except Exception as e:
+            print("Dealer login error:", e)
 
         # Try Company login
         try:
             company = Company.objects.get(email=email)
+            print("Company found:", company.email)
             if check_password(password, company.password):
                 LoginRecord.objects.create(email=email, user_type='company', success=True)
-                return Response({"message": "Login successful", "user_type": "company"}, status=status.HTTP_200_OK)
+                return Response({
+                    "message": "Login successful",
+                    "user_type": "company",
+                    "company_id": company.id
+                }, status=status.HTTP_200_OK)
             else:
                 LoginRecord.objects.create(email=email, user_type='company', success=False)
                 return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
         except Company.DoesNotExist:
             return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            print("Company login error:", e)
+            return Response({"message": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

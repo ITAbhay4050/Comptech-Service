@@ -4,14 +4,13 @@ from django.contrib.auth.hashers import make_password
 class Company(models.Model):
     gst_no = models.CharField(max_length=20)
     name = models.CharField(max_length=255)
-    contact_person = models.CharField(max_length=255)
     address = models.TextField()
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
     country = models.CharField(max_length=100)
     pin_code = models.CharField(max_length=20)
-    contact_phone = models.CharField(max_length=20)
-    contact_email = models.EmailField()
+    phone = models.CharField(max_length=20)
+    email = models.EmailField()
     pan_no = models.CharField(max_length=20)
     password = models.CharField(max_length=128)  # Store hashed password
     created_at = models.DateTimeField(auto_now_add=True)
