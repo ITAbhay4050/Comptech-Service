@@ -1,4 +1,3 @@
-
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -6,7 +5,7 @@ import { ShieldAlert } from 'lucide-react';
 
 const Unauthorized = () => {
   const { user } = useAuth();
-  
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100">
       <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">

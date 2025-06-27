@@ -1,24 +1,18 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
-import { useAuth } from '@/context/AuthContext';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const navigate = useNavigate();
   const { setUser } = useAuth();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +47,6 @@ const Login = () => {
             ? 'COMPANY_ADMIN'
             : 'UNKNOWN';
 
-        // Save user info globally (context) and optionally in localStorage
         setUser({
           email: email,
           role: role,
@@ -68,7 +61,6 @@ const Login = () => {
           description: `Welcome, ${role.replace('_', ' ')}`,
         });
 
-        // Redirect all user types to the same dashboard
         navigate('/dashboard');
       } else {
         toast({
@@ -88,14 +80,44 @@ const Login = () => {
     }
   };
 
+  const fillCredentials = (role: string) => {
+    switch (role) {
+      case 'admin':
+        setEmail('admin@system.com');
+        setPassword('password');
+        break;
+      case 'company_admin':
+        setEmail('admin@company.com');
+        setPassword('password');
+        break;
+      case 'company_employee':
+        setEmail('employee@company.com');
+        setPassword('password');
+        break;
+      case 'dealer_admin':
+        setEmail('admin@dealer.com');
+        setPassword('password');
+        break;
+      case 'dealer_employee':
+        setEmail('employee@dealer.com');
+        setPassword('password');
+        break;
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <div className="w-full max-w-md px-4">
-        <Card className="shadow-lg">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">RBAC Machine Management</CardTitle>
-            <CardDescription className="text-center">
-              Enter your credentials to access your account
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-gray-900 to-slate-900 relative">
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iNCIvPjwvZz48L2c+PC9zdmc+')] opacity-20"></div>
+
+      <div className="w-full max-w-md px-4 relative z-10">
+        <Card className="shadow-2xl backdrop-blur-sm bg-white/95">
+          <CardHeader className="space-y-4 text-center">
+            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+              <span className="text-white font-bold text-xl">CG</span>
+            </div>
+            <CardTitle className="text-2xl font-bold text-gray-800">COMPTECH GEAR UP</CardTitle>
+            <CardDescription className="text-center text-gray-600">
+              Machine Management & Installation System
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -122,20 +144,45 @@ const Login = () => {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? 'Signing in...' : 'Sign In'}
               </Button>
             </form>
 
-            <div className="mt-4 text-center text-sm">
-              <p>
-                Don't have an account?{' '}
-                <Link to="/dealerregister" className="text-blue-600">Register</Link>
+            <div className="mt-4 text-center text-sm text-muted-foreground">
+              <p className="mb-2">
+                Don’t have an account?{' '}
+                <Link to="/dealerregister" className="text-blue-600 underline">Register</Link>
               </p>
               <p>
                 Create Company?{' '}
-                <Link to="/register" className="text-blue-600">Create Company</Link>
+                <Link to="/register" className="text-blue-600 underline">Create Company</Link>
               </p>
+            </div>
+
+            <div className="border-t pt-4 mt-6">
+              <p className="text-center text-sm text-muted-foreground mb-2">Demo Accounts (Click to fill):</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={() => fillCredentials('admin')} type="button">
+                  System Admin
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fillCredentials('company_admin')} type="button">
+                  Company Admin
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fillCredentials('company_employee')} type="button">
+                  Company Employee
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fillCredentials('dealer_admin')} type="button">
+                  Dealer Admin
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fillCredentials('dealer_employee')} type="button">
+                  Dealer Employee
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

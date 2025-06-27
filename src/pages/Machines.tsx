@@ -1,4 +1,3 @@
-
 import DashboardLayout from '@/components/Layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Machine, UserRole } from '@/types';
@@ -10,7 +9,7 @@ import { PlusCircle, Search, FilterIcon, CheckCircle2, Clock, WrenchIcon, AlertC
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 
-// Mock data for machines
+// Mock machines data
 const mockMachines: Machine[] = [
   {
     id: '1',
@@ -18,34 +17,55 @@ const mockMachines: Machine[] = [
     serialNumber: 'CLX5000-12345-AB',
     installationDate: '2023-05-15',
     installedById: '3',
-    location: '123 Main St, New York, NY',
-    notes: 'Installed without issues',
+    clientCompanyName: 'ABC Manufacturing',
+    clientGstNumber: 'GST111222333',
+    clientContactPerson: 'John Doe',
+    clientContactPhone: '+1-555-1111',
+    location: '123 Factory Lane, Industrial Area, City - 100001',
+    notes: 'Standard installation completed successfully',
     status: 'installed',
+    createdAt: '2023-05-10T00:00:00Z'
   },
   {
     id: '2',
     model: 'RVX-300 Advanced',
     serialNumber: 'RVX300-67890-CD',
-    installationDate: '2023-06-22',
-    installedById: '3',
-    location: '456 Park Ave, Los Angeles, CA',
-    notes: 'Client requested additional training',
+    installationDate: '2023-06-20',
+    installedById: '5',
+    clientCompanyName: 'XYZ Industries',
+    clientGstNumber: 'GST444555666',
+    clientContactPerson: 'Jane Smith',
+    clientContactPhone: '+1-555-2222',
+    location: '456 Production Street, Manufacturing Zone, City - 200002',
+    notes: 'Advanced model with custom configuration',
     status: 'installed',
+    createdAt: '2023-06-15T00:00:00Z'
   },
   {
     id: '3',
-    model: 'CLX-6000 Pro',
-    serialNumber: 'CLX6000-24680-EF',
+    model: 'RVX-200 Compact',
+    serialNumber: 'RVX200-11111-EF',
+    clientCompanyName: 'Pending Installation',
+    clientGstNumber: '',
+    clientContactPerson: '',
+    clientContactPhone: '',
+    location: '',
     status: 'pending',
+    createdAt: '2023-07-01T00:00:00Z'
   },
   {
     id: '4',
-    model: 'RVX-200 Compact',
-    serialNumber: 'RVX200-13579-GH',
+    model: 'CLX-7000 Premium',
+    serialNumber: 'CLX7000-99999-GH',
     installationDate: '2023-04-10',
-    installedById: '5',
-    location: '789 Broadway, Chicago, IL',
+    installedById: '3',
+    clientCompanyName: 'Tech Solutions Ltd',
+    clientGstNumber: 'GST777888999',
+    clientContactPerson: 'Bob Johnson',
+    clientContactPhone: '+1-555-3333',
+    location: '789 Assembly Road, Tech Park, City - 300003',
     status: 'servicing',
+    createdAt: '2023-04-05T00:00:00Z'
   }
 ];
 

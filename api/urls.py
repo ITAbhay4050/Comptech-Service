@@ -4,7 +4,7 @@ from .views import (
     RegisterDealer,
     SendOTPView,
     VerifyOTPView,
-    LoginView,  # ✅ Add login import
+    LoginView, DealerCountView # ✅ Add login import
 )
 
 urlpatterns = [
@@ -13,4 +13,5 @@ urlpatterns = [
     path('send-otp/', SendOTPView.as_view(), name='send_otp'),
     path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('login/', LoginView.as_view(), name='login'),  # ✅ Add login URL
+     path('dealers/count/', DealerCountView.as_view(), name='dealer_count'),
 ]

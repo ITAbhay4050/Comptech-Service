@@ -1,80 +1,172 @@
-
-// Role definitions
+/* ------------------------------------------------------------------ *
+ *  Shared Role & Status Enums
+ * ------------------------------------------------------------------ */
 export enum UserRole {
-  APPLICATION_ADMIN = "APPLICATION_ADMIN",
-  COMPANY_ADMIN = "COMPANY_ADMIN",
-  COMPANY_EMPLOYEE = "COMPANY_EMPLOYEE",
-  DEALER_ADMIN = "DEALER_ADMIN",
-  DEALER_EMPLOYEE = "DEALER_EMPLOYEE"
+  APPLICATION_ADMIN  = "APPLICATION_ADMIN",
+  COMPANY_ADMIN      = "COMPANY_ADMIN",
+  COMPANY_EMPLOYEE   = "COMPANY_EMPLOYEE",
+  DEALER_ADMIN       = "DEALER_ADMIN",
+  DEALER_EMPLOYEE    = "DEALER_EMPLOYEE",
 }
 
+export enum UserStatus {
+  ACTIVE   = "ACTIVE",
+  INACTIVE = "INACTIVE",
+  PENDING  = "PENDING",
+}
+
+/* ------------------------------------------------------------------ *
+ *  Core Entities
+ * ------------------------------------------------------------------ */
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+
+  /* optional / nice-to-have fields */
+  phone?: string;
+  username?: string;
+  status?: UserStatus;
   companyId?: string;
   dealerId?: string;
+  profilePhoto?: string;
+  createdAt?: string;
+  lastLogin?: string;
 }
 
+/* ----------  Company  ---------- */
 export interface Company {
   id: string;
   name: string;
+
+  /* address & geo */
   address: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pinCode?: string;
+
+  /* contact */
   contactPerson: string;
   contactEmail: string;
   contactPhone: string;
+
+  /* tax / compliance */
+  gstNumber?: string;
+  panNumber?: string;
+
+  /* meta */
+  status?: UserStatus;
+  createdAt?: string;
 }
 
+/* ----------  Dealer  ---------- */
 export interface Dealer {
   id: string;
   name: string;
   address: string;
+
+  /* contact */
   contactPerson: string;
   contactEmail: string;
   contactPhone: string;
-  companyId: string; // Associated company
+
+  /* tax */
+  gstNumber?: string;
+
+  companyId: string;          // FK → Company
+  status?: UserStatus;
+  createdAt?: string;
 }
 
+/* ----------  Machine  ---------- */
 export interface Machine {
   id: string;
   model: string;
   serialNumber: string;
+
   installationDate?: string;
   installedById?: string;
+
+  /* client / site info */
+  clientCompanyName?: string;
+  clientGstNumber?: string;
+  clientContactPerson?: string;
+  clientContactPhone?: string;
   location?: string;
+
+  /* misc */
   notes?: string;
-  status: 'pending' | 'installed' | 'servicing' | 'decommissioned';
+  photos?: string[];
+
+  status: "pending" | "installed" | "servicing" | "decommissioned";
+  createdAt?: string;
 }
 
+/* ----------  Task  ---------- */
 export interface Task {
   id: string;
   title: string;
   description: string;
   createdAt: string;
   deadline: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
+
+  priority: "low" | "medium" | "high" | "urgent";
+  status: "pending" | "in-progress" | "completed" | "cancelled";
+
   assignerId: string;
   assigneeId: string;
-  machineId?: string; // Optional, if task is related to a specific machine
+
+  /* machine linkage */
+  machineId?: string;
+  serialNumber?: string;   // convenience when machineId unknown
 }
 
+/* ----------  Ticket  ---------- */
 export interface Ticket {
   id: string;
   machineId: string;
+  serialNumber?: string;          // mirrors Task serialNumber
+
   issueDescription: string;
   dateReported: string;
+
   reportedById: string;
   assignedToId?: string;
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
-  urgency: 'low' | 'medium' | 'high' | 'critical';
+
+  status: "open" | "in-progress" | "resolved" | "closed";
+  urgency: "low" | "medium" | "high" | "critical";
   resolutionNotes?: string;
+
+  /* feedback objects are optional & nested */
+  feedback?: {
+    dealerAdminFeedback?: {
+      satisfactionScore: number;
+      comments: string;
+      followUpNeeded: boolean;
+      submittedAt: string;
+      submittedBy: string;
+    };
+    dealerEmployeeFeedback?: {
+      satisfactionScore: number;
+      comments: string;
+      followUpNeeded: boolean;
+      submittedAt: string;
+      submittedBy: string;
+    };
+  };
+
+  dealerId?: string;  // which dealer raised / owns this ticket
+  createdAt?: string;
 }
 
-// Access control type
+/* ------------------------------------------------------------------ *
+ *  Access-control helper
+ * ------------------------------------------------------------------ */
 export interface RoleAccess {
   role: UserRole;
+
   canAccessPages: string[];
   canManageUsers: boolean;
   canAssignTasks: boolean;

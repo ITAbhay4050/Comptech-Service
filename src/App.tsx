@@ -7,13 +7,17 @@ import { AuthProvider } from "@/context/AuthContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { UserRole } from "@/types";
 
+// -----------------------------------------------------------------------------
 // Auth Pages
+// -----------------------------------------------------------------------------
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import DealerRegister from "./pages/Dealerregister";
 import Unauthorized from "./pages/Unauthorized";
 
-// Dashboard Pages
+// -----------------------------------------------------------------------------
+// Dashboard + Feature Pages
+// -----------------------------------------------------------------------------
 import Dashboard from "./pages/Dashboard";
 import MachineInstallation from "./pages/MachineInstallation";
 import Machines from "./pages/Machines";
@@ -26,75 +30,92 @@ import Users from "./pages/Users";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
+// -----------------------------------------------------------------------------
+// React‑Query Client
+// -----------------------------------------------------------------------------
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/dealerregister" element={<DealerRegister />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+// -----------------------------------------------------------------------------
+// App Component
+// -----------------------------------------------------------------------------
 
-            {/* Redirect root to dashboard */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          {/* Global Toast Components */}
+          <Toaster />
+          <Sonner />
 
-            {/* Dashboard and common authenticated routes */}
-            <Route element={<PrivateRoute />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/machines" element={<Machines />} />
-              <Route path="/machines/:id" element={<MachineDetails />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/tickets" element={<Tickets />} />
-              <Route path="/profile" element={<Profile />} />
-            </Route>
+          {/* Routes */}
+          <BrowserRouter>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/dealerregister" element={<DealerRegister />} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
 
-            {/* Admin-only routes (Application, Company, Dealer Admins) */}
-            <Route
-              element={
-                <PrivateRoute
-                  allowedRoles={[
-                    UserRole.APPLICATION_ADMIN,
-                    UserRole.COMPANY_ADMIN,
-                    UserRole.DEALER_ADMIN,
-                  ]}
-                />
-              }
-            >
-              <Route path="/users" element={<Users />} />
-              <Route path="/companies" element={<Companies />} />
-              <Route path="/dealers" element={<Dealers />} />
-            </Route>
+              {/* Redirect root → dashboard */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            {/* Installation - for Admins and Employees */}
-            <Route
-              element={
-                <PrivateRoute
-                  allowedRoles={[
-                    UserRole.APPLICATION_ADMIN,
-                    UserRole.COMPANY_ADMIN,
-                    UserRole.COMPANY_EMPLOYEE,
-                    UserRole.DEALER_EMPLOYEE,
-                  ]}
-                />
-              }
-            >
-              <Route path="/machine-installation" element={<MachineInstallation />} />
-            </Route>
+              {/* ----------------------------------------------------------------- */}
+              {/* Authenticated Routes – Any logged‑in user */}
+              {/* ----------------------------------------------------------------- */}
+              <Route element={<PrivateRoute />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/machines" element={<Machines />} />
+                <Route path="/machines/:id" element={<MachineDetails />} />
+                <Route path="/tasks" element={<Tasks />} />
+                <Route path="/tickets" element={<Tickets />} />
+                <Route path="/profile" element={<Profile />} />
+              </Route>
 
-            {/* 404 Page */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
+              {/* ----------------------------------------------------------------- */}
+              {/* Admin‑Only Routes (App / Company / Dealer Admin) */}
+              {/* ----------------------------------------------------------------- */}
+              <Route
+                element={
+                  <PrivateRoute
+                    allowedRoles={[
+                      UserRole.APPLICATION_ADMIN,
+                      UserRole.COMPANY_ADMIN,
+                      UserRole.DEALER_ADMIN,
+                    ]}
+                  />
+                }
+              >
+                <Route path="/users" element={<Users />} />
+                <Route path="/companies" element={<Companies />} />
+                <Route path="/dealers" element={<Dealers />} />
+              </Route>
 
-export default App;
+              {/* ----------------------------------------------------------------- */}
+              {/* Machine Installation – Admins + Employees (Both side) */}
+              {/* ----------------------------------------------------------------- */}
+              <Route
+                element={
+                  <PrivateRoute
+                    allowedRoles={[
+                      UserRole.APPLICATION_ADMIN,
+                      UserRole.COMPANY_ADMIN,
+                      UserRole.COMPANY_EMPLOYEE,
+                      UserRole.DEALER_ADMIN,
+                      UserRole.DEALER_EMPLOYEE,
+                    ]}
+                  />
+                }
+              >
+                <Route path="/machine-installation" element={<MachineInstallation />} />
+              </Route>
+
+              {/* 404 */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}

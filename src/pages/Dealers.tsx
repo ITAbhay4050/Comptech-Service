@@ -1,6 +1,13 @@
-import { useState, useEffect } from 'react';
-import DashboardLayout from '@/components/Layout/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from "react";
+import DashboardLayout from "@/components/Layout/DashboardLayout";
+import CreateDealerForm from "@/components/DealerManagement/CreateDealerForm";
+
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -16,143 +23,165 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Plus, Search, Edit, Trash2, Store, Mail, Phone, Building2 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
+import {
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  Store,
+  Users,
+  MapPin,
+  Phone,
+  Mail,
+  Building2,
+} from "lucide-react";
 
-interface Dealer {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  state: string;
-  city: string;
-  gst_no: string;
-  company?: string;
-}
+import { Dealer, Company, UserRole, UserStatus, User } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+
+/* ----------  helpers  ---------- */
+const authHeader = () => ({
+  Authorization: `Token ${localStorage.getItem("token")}`,
+  "Content-Type": "application/json",
+});
 
 const Dealers = () => {
   const { user } = useAuth();
+
+  /* ----------  state  ---------- */
   const [dealers, setDealers] = useState<Dealer[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [newDealer, setNewDealer] = useState<Omit<Dealer, 'id'>>({
-    name: '',
-    email: '',
-    phone: '',
-    state: '',
-    city: '',
-    gst_no: ''
-  });
+
+  /* ----------  fetch data  ---------- */
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // dealers
+      const dealerRes = await fetch("http://127.0.0.1:8000/api/dealers/", {
+        headers: authHeader(),
+      });
+      if (!dealerRes.ok) throw new Error("Could not fetch dealers");
+      const dealerJson = await dealerRes.json();
+
+      // companies – only if the user should see them
+      let companyJson: Company[] = [];
+      if (user?.role === UserRole.APPLICATION_ADMIN || user?.role === UserRole.COMPANY_ADMIN) {
+        const compRes = await fetch("http://127.0.0.1:8000/api/companies/", {
+          headers: authHeader(),
+        });
+        if (!compRes.ok) throw new Error("Could not fetch companies");
+        companyJson = await compRes.json();
+      }
+
+      setDealers(dealerJson);
+      setCompanies(companyJson);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.role]);
 
   useEffect(() => {
-    const fetchDealers = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('http://127.0.0.1:8000/api/register/dealer/', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
+    loadData();
+  }, [loadData]);
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch dealers');
-        }
+  /* ----------  derived lists  ---------- */
+  const filteredDealers = dealers
+    // company-scope for COMPANY_ADMIN
+    .filter((d) =>
+      user?.role === UserRole.COMPANY_ADMIN && user.companyId
+        ? d.companyId === user.companyId
+        : true
+    )
+    // search filter
+    .filter((d) => {
+      const t = searchTerm.toLowerCase();
+      return (
+        d.name.toLowerCase().includes(t) ||
+        d.contactPerson.toLowerCase().includes(t) ||
+        d.contactEmail.toLowerCase().includes(t)
+      );
+    });
 
-        const data = await response.json();
-        setDealers(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const scopedCompanies =
+    user?.role === UserRole.COMPANY_ADMIN && user.companyId
+      ? companies.filter((c) => c.id === user.companyId)
+      : companies;
 
-    fetchDealers();
-  }, []);
+  const getCompanyName = (cid: string) =>
+    companies.find((c) => c.id === cid)?.name ?? "Unknown";
 
-  const filteredDealers = dealers.filter(dealer => {
-    const term = searchTerm.toLowerCase();
-    return (
-      dealer.name.toLowerCase().includes(term) ||
-      dealer.email.toLowerCase().includes(term) ||
-      dealer.phone.toLowerCase().includes(term)
-    );
-  });
+  const dealerCountForCompany = (cid: string) =>
+    dealers.filter((d) => d.companyId === cid).length;
 
-  const handleAddDealer = async () => {
+  /* ----------  CRUD actions  ---------- */
+  const handleDealerCreated = async (newDealer: Dealer, adminUser: User) => {
+    setDealers((prev) => [...prev, newDealer]);
+    console.log("Created dealer admin user:", adminUser);
+    setIsAddDialogOpen(false);
+  };
+
+  const handleDeleteDealer = async (id: string) => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/register/dealer/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newDealer)
+      const res = await fetch(`http://127.0.0.1:8000/api/dealers/${id}/`, {
+        method: "DELETE",
+        headers: authHeader(),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to add dealer');
-      }
-
-      const data = await response.json();
-      setDealers([...dealers, data]);
-      setNewDealer({
-        name: '',
-        email: '',
-        phone: '',
-        state: '',
-        city: '',
-        gst_no: ''
-      });
-      setIsAddDialogOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add dealer');
+      if (!res.ok) throw new Error("Delete failed");
+      setDealers((prev) => prev.filter((d) => d.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
+  /* ----------  early states  ---------- */
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex justify-center items-center h-64">
-          <p>Loading dealers...</p>
-        </div>
+        <div className="flex items-center justify-center h-64">Loading…</div>
       </DashboardLayout>
     );
   }
-
   if (error) {
     return (
       <DashboardLayout>
-        <div className="flex justify-center items-center h-64">
-          <p className="text-red-500">{error}</p>
+        <div className="flex items-center justify-center h-64 text-red-500">
+          {error}
         </div>
       </DashboardLayout>
     );
   }
 
+  /* ----------  render  ---------- */
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        {/* header + add dialog */}
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Dealers Management</h2>
+            <h2 className="text-3xl font-bold tracking-tight">
+              {user?.role === UserRole.COMPANY_ADMIN
+                ? "Company Dealers"
+                : "Dealers & Companies"}
+            </h2>
             <p className="text-muted-foreground">
-              {user?.role === 'COMPANY_ADMIN' 
-                ? 'Manage dealers associated with your company'
-                : 'Manage all dealers in the system'
-              }
+              {user?.role === UserRole.COMPANY_ADMIN
+                ? "Manage dealers associated with your company"
+                : "Manage dealers, their company associations, and view all companies"}
             </p>
           </div>
-          
+
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -160,34 +189,136 @@ const Dealers = () => {
                 Add Dealer
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]">
               <DialogHeader>
                 <DialogTitle>Add New Dealer</DialogTitle>
-                <DialogDescription>Enter dealer details below.</DialogDescription>
+                <DialogDescription>
+                  Create a new dealer and its admin account.
+                </DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                {Object.entries(newDealer).map(([key, value]) => (
-                  <div key={key} className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor={key} className="text-right capitalize">
-                      {key.replace('_', ' ')}
-                    </Label>
-                    <Input
-                      id={key}
-                      value={value}
-                      onChange={(e) => setNewDealer({...newDealer, [key]: e.target.value})}
-                      className="col-span-3"
-                      placeholder={`Enter ${key.replace('_', ' ')}`}
-                    />
-                  </div>
-                ))}
-              </div>
-              <DialogFooter>
-                <Button onClick={handleAddDealer}>Add Dealer</Button>
-              </DialogFooter>
+
+              <CreateDealerForm
+                onDealerCreated={handleDealerCreated}
+                onCancel={() => setIsAddDialogOpen(false)}
+                companies={scopedCompanies}
+              />
             </DialogContent>
           </Dialog>
         </div>
 
+        {/* company list (APPLICATION_ADMIN) */}
+        {user?.role === UserRole.APPLICATION_ADMIN && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                All Companies ({scopedCompanies.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Contact Info</TableHead>
+                    <TableHead>Address</TableHead>
+                    <TableHead>Dealers</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scopedCompanies.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          {c.name}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          {c.contactPerson}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-3 w-3 text-muted-foreground" />
+                            {c.contactEmail}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3 w-3 text-muted-foreground" />
+                            {c.contactPhone}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 text-sm">
+                          <MapPin className="h-3 w-3 text-muted-foreground" />
+                          <span className="truncate max-w-xs">{c.address}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                          <Store className="h-3 w-3" />
+                          {dealerCountForCompany(c.id)} Dealers
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* company info (COMPANY_ADMIN) */}
+        {user?.role === UserRole.COMPANY_ADMIN && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                Your Company
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {scopedCompanies.map((c) => (
+                <div key={c.id} className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <h3 className="text-lg font-semibold">{c.name}</h3>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <MapPin className="h-3 w-3" />
+                        {c.address}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">Contact:</span> {c.contactPerson}
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        {c.contactEmail}
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        {c.contactPhone}
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                    <Store className="h-3 w-3" />
+                    {dealerCountForCompany(c.id)} Dealers
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* search */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -197,7 +328,7 @@ const Dealers = () => {
           </CardHeader>
           <CardContent>
             <Input
-              placeholder="Search by name, email, or phone..."
+              placeholder="Search by dealer name, contact person, or email…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
@@ -205,48 +336,81 @@ const Dealers = () => {
           </CardContent>
         </Card>
 
+        {/* dealers table */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Store className="h-5 w-5" />
-              Dealers ({filteredDealers.length})
+              {user?.role === UserRole.COMPANY_ADMIN ? "Company Dealers" : "Dealers"} (
+              {filteredDealers.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>City</TableHead>
-                  <TableHead>GST No.</TableHead>
-                  {user?.role === 'APPLICATION_ADMIN' && <TableHead>Company</TableHead>}
+                  <TableHead>Dealer</TableHead>
+                  {user?.role === UserRole.APPLICATION_ADMIN && (
+                    <TableHead>Company</TableHead>
+                  )}
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Contact Info</TableHead>
+                  <TableHead>Address</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredDealers.map((dealer) => (
-                  <TableRow key={dealer.id}>
-                    <TableCell className="font-medium">{dealer.name}</TableCell>
-                    <TableCell>{dealer.email}</TableCell>
-                    <TableCell>{dealer.phone}</TableCell>
-                    <TableCell>{dealer.state}</TableCell>
-                    <TableCell>{dealer.city}</TableCell>
-                    <TableCell>{dealer.gst_no}</TableCell>
-                    {user?.role === 'APPLICATION_ADMIN' && (
-                      <TableCell>{dealer.company}</TableCell>
+                {filteredDealers.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <Store className="h-4 w-4 text-muted-foreground" />
+                        {d.name}
+                      </div>
+                    </TableCell>
+
+                    {user?.role === UserRole.APPLICATION_ADMIN && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <Badge variant="secondary">{getCompanyName(d.companyId)}</Badge>
+                        </div>
+                      </TableCell>
                     )}
+
                     <TableCell>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        {d.contactPerson}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-3 w-3 text-muted-foreground" />
+                          {d.contactEmail}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3 w-3 text-muted-foreground" />
+                          {d.contactPhone}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 text-sm">
+                        <MapPin className="h-3 w-3 text-muted-foreground" />
+                        <span className="truncate max-w-xs">{d.address}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm">
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
-                          onClick={() => handleDeleteDealer(dealer.id)}
+                          onClick={() => handleDeleteDealer(d.id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

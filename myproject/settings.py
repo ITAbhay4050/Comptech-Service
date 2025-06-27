@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',  
     'corsheaders',
     'api',
 ]
@@ -74,6 +75,7 @@ DATABASES = {
     }
 }
 
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -91,10 +93,14 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+# Internationalization
+LANGUAGE_CODE = "en-us"
+
+# IST = Indian Standard Time  (UTC +05:30)
+TIME_ZONE = "Asia/Kolkata"    
 USE_I18N = True
-USE_TZ = True
+USE_TZ = True                   
+               
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
@@ -104,13 +110,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework Settings (merged properly)
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny'
+        'rest_framework.permissions.AllowAny',  # Allow login without token
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ]
 }
+
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True

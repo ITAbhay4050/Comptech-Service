@@ -1,16 +1,30 @@
-"""
-ASGI config for myproject project.
+# """ASGI entry‑point for myproject.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
+# Now upgraded for Django Channels so we can handle both HTTP and WebSocket
+# protocols (used for real‑time dealer‑registration notifications).
+# """
 
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
-"""
+# import os
+# import django
 
-import os
+# from django.core.asgi import get_asgi_application
+# from channels.routing import ProtocolTypeRouter, URLRouter
+# from channels.auth import AuthMiddlewareStack
 
-from django.core.asgi import get_asgi_application
+# #  Ensure settings are loaded before anything else
+# os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myproject.settings")
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+# django.setup()
 
-application = get_asgi_application()
+# # Import websocket URL patterns AFTER django.setup() so that any app‑specific
+# # routing (e.g. from dealers or api) can safely interact with ORM/models.
+# from myproject.routing import websocket_urlpatterns  # noqa: E402  (import after setup is intentional)
+
+# application = ProtocolTypeRouter(
+#     {
+#         "http": get_asgi_application(),
+#         "websocket": AuthMiddlewareStack(
+#             URLRouter(websocket_urlpatterns)
+#         ),
+#     }
+# )

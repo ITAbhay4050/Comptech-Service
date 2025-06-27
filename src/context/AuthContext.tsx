@@ -1,47 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { User, UserRole } from "@/types";
 
-// Mock data for demo purposes
-const MOCK_USERS = [
-  {
-    id: "1",
-    name: "System Admin",
-    email: "admin@system.com",
-    role: UserRole.APPLICATION_ADMIN,
-  },
-  {
-    id: "2",
-    name: "Company Admin",
-    email: "admin@company.com",
-    role: UserRole.COMPANY_ADMIN,
-    companyId: "1",
-  },
-  {
-    id: "3",
-    name: "Company Employee",
-    email: "employee@company.com",
-    role: UserRole.COMPANY_EMPLOYEE,
-    companyId: "1",
-  },
-  {
-    id: "4",
-    name: "Dealer Admin",
-    email: "admin@dealer.com",
-    role: UserRole.DEALER_ADMIN,
-    dealerId: "1",
-    companyId: "1",
-  },
-  {
-    id: "5",
-    name: "Dealer Employee",
-    email: "employee@dealer.com",
-    role: UserRole.DEALER_EMPLOYEE,
-    dealerId: "1",
-    companyId: "1",
-  },
-];
-
-// ✅ Add setUser to the context type
 type AuthContextType = {
   user: User | null;
   setUser: (user: User | null) => void;
@@ -60,7 +19,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
-    if (storedUser) {
+    const storedToken = localStorage.getItem("token");
+    if (storedUser && storedToken) {
       setUser(JSON.parse(storedUser));
     }
     setIsLoading(false);
@@ -68,21 +28,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const res = await fetch("http://127.0.0.1:8000/api/login/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email, password })
+      });
 
-      const foundUser = MOCK_USERS.find(u => u.email === email);
+      if (!res.ok) throw new Error("Invalid credentials");
 
-      if (foundUser) {
-        setUser(foundUser);
-        localStorage.setItem("user", JSON.stringify(foundUser));
-        setIsLoading(false);
-        return true;
-      }
+      const data = await res.json();
 
+      const loggedInUser: User = {
+         id: data.dealer_id ?? data.company_id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role,
+        companyId: data.user.company_id,
+        dealerId: data.user.dealer_id
+      };
+
+   localStorage.setItem("user", JSON.stringify(loggedInUser));
+localStorage.setItem("token", data.token);   // <-- key “token” hi rahe
+setUser(loggedInUser);
+
+      setUser(loggedInUser);
       setIsLoading(false);
-      return false;
+      return true;
     } catch (error) {
       console.error("Login failed:", error);
       setIsLoading(false);
@@ -93,12 +67,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem("user");
+    localStorage.removeItem("token");
   };
 
   const register = async (newUser: Partial<User>): Promise<boolean> => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const res = await fetch("http://127.0.0.1:8000/api/register/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(newUser)
+      });
+
+      if (!res.ok) throw new Error("Registration failed");
+
       setIsLoading(false);
       return true;
     } catch (error) {
@@ -112,12 +96,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider
       value={{
         user,
-        setUser, // ✅ include setter here
+        setUser,
         login,
         logout,
         register,
         isAuthenticated: !!user,
-        isLoading,
+        isLoading
       }}
     >
       {children}
@@ -127,7 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
