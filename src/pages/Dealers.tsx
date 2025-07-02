@@ -40,19 +40,46 @@ import {
   Building2,
 } from "lucide-react";
 
-import { Dealer, Company, UserRole, UserStatus, User } from "@/types";
+import { Dealer, Company, UserRole, User } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
-/* ----------  helpers  ---------- */
-const authHeader = () => ({
-  Authorization: `Token ${localStorage.getItem("token")}`,
-  "Content-Type": "application/json",
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
+
+const makeAuthHeaders = (token?: string) =>
+  token
+    ? { Authorization: `Token ${token}`, "Content-Type": "application/json" }
+    : { "Content-Type": "application/json" };
+
+const normaliseDealer = (d: any): Dealer => ({
+  id: String(d.id),
+  companyId: String(d.company),
+  name: d.name,
+  contactPerson: d.name, // adjust if API sends separate field
+  contactEmail: d.email,
+  contactPhone: d.phone,
+  address: d.address,
 });
 
+const normaliseCompany = (c: any): Company => ({
+  id: String(c.id),
+  name: c.name,
+  address: c.address,
+  contactPerson: c.name, // adjust as needed
+  contactEmail: c.email,
+  contactPhone: c.phone,
+});
+
+/* ------------------------------------------------------------------ */
+/* Component                                                          */
+/* ------------------------------------------------------------------ */
 const Dealers = () => {
   const { user } = useAuth();
+  const token = user?.token;
 
-  /* ----------  state  ---------- */
+  /* ---------- state ---------- */
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -60,57 +87,60 @@ const Dealers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* ----------  fetch data  ---------- */
+  /* ---------- data load ---------- */
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // dealers
-      const dealerRes = await fetch("http://127.0.0.1:8000/api/register/dealer/", {
-        headers: authHeader(),
+      // Dealers
+      const dRes = await fetch(`${API_BASE}/dealers/`, {
+        headers: makeAuthHeaders(token),
       });
-      if (!dealerRes.ok) throw new Error("Could not fetch dealers");
-      const dealerJson = await dealerRes.json();
+      if (!dRes.ok) throw new Error("Could not fetch dealers");
+      const dJson = await dRes.json();
+      const dealersNorm: Dealer[] = dJson.map(normaliseDealer);
 
-      // companies – only if the user should see them
-      let companyJson: Company[] = [];
-      if (user?.role === UserRole.APPLICATION_ADMIN || user?.role === UserRole.COMPANY_ADMIN) {
-        const compRes = await fetch("http://127.0.0.1:8000/api/companies/", {
-          headers: authHeader(),
+      // Companies (only for elevated roles)
+      let companiesNorm: Company[] = [];
+      if (
+        user?.role === UserRole.APPLICATION_ADMIN ||
+        user?.role === UserRole.COMPANY_ADMIN
+      ) {
+        const cRes = await fetch(`${API_BASE}/register/company/`, {
+          headers: makeAuthHeaders(token),
         });
-        if (!compRes.ok) throw new Error("Could not fetch companies");
-        companyJson = await compRes.json();
+        if (!cRes.ok) throw new Error("Could not fetch companies");
+        const cJson = await cRes.json();
+        companiesNorm = cJson.map(normaliseCompany);
       }
 
-      setDealers(dealerJson);
-      setCompanies(companyJson);
+      setDealers(dealersNorm);
+      setCompanies(companiesNorm);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
     }
-  }, [user?.role]);
+  }, [token, user?.role]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  /* ----------  derived lists  ---------- */
+  /* ---------- filters ---------- */
   const filteredDealers = dealers
-    // company-scope for COMPANY_ADMIN
     .filter((d) =>
       user?.role === UserRole.COMPANY_ADMIN && user.companyId
         ? d.companyId === user.companyId
-        : true
+        : true,
     )
-    // search filter
     .filter((d) => {
       const t = searchTerm.toLowerCase();
       return (
         d.name.toLowerCase().includes(t) ||
-        d.contactPerson.toLowerCase().includes(t) ||
-        d.contactEmail.toLowerCase().includes(t)
+        d.contactPerson?.toLowerCase().includes(t) ||
+        d.contactEmail?.toLowerCase().includes(t)
       );
     });
 
@@ -125,18 +155,17 @@ const Dealers = () => {
   const dealerCountForCompany = (cid: string) =>
     dealers.filter((d) => d.companyId === cid).length;
 
-  /* ----------  CRUD actions  ---------- */
-  const handleDealerCreated = async (newDealer: Dealer, adminUser: User) => {
+  /* ---------- CRUD callbacks ---------- */
+  const handleDealerCreated = (newDealer: Dealer, _admin: User) => {
     setDealers((prev) => [...prev, newDealer]);
-    console.log("Created dealer admin user:", adminUser);
     setIsAddDialogOpen(false);
   };
 
   const handleDeleteDealer = async (id: string) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/dealers/${id}/`, {
+      const res = await fetch(`${API_BASE}/dealers/${id}/`, {
         method: "DELETE",
-        headers: authHeader(),
+        headers: makeAuthHeaders(token),
       });
       if (!res.ok) throw new Error("Delete failed");
       setDealers((prev) => prev.filter((d) => d.id !== id));
@@ -145,7 +174,7 @@ const Dealers = () => {
     }
   };
 
-  /* ----------  early states  ---------- */
+  /* ---------- early returns ---------- */
   if (loading) {
     return (
       <DashboardLayout>
@@ -163,7 +192,7 @@ const Dealers = () => {
     );
   }
 
-  /* ----------  render  ---------- */
+  /* ---------- render ---------- */
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -350,9 +379,7 @@ const Dealers = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead>Dealer</TableHead>
-                  {user?.role === UserRole.APPLICATION_ADMIN && (
-                    <TableHead>Company</TableHead>
-                  )}
+                  {user?.role === UserRole.APPLICATION_ADMIN && <TableHead>Company</TableHead>}
                   <TableHead>Contact</TableHead>
                   <TableHead>Contact Info</TableHead>
                   <TableHead>Address</TableHead>

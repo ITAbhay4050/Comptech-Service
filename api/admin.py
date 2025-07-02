@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Company, Dealer , LoginRecord ,MachineInstallation
+from .models import Company, Dealer , LoginRecord ,MachineInstallation,Task
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
@@ -20,3 +20,8 @@ class LoginRecordAdmin(admin.ModelAdmin):
 @admin.register(MachineInstallation)
 class MachineInstallationAdmin(admin.ModelAdmin):
     list_display = ['model_number', 'serial_number', 'installation_date', 'submitted_by_name']
+@admin.register(Task)
+class TaskAdmin(admin.ModelAdmin):
+    list_display = ("title", "deadline", "priority", "status", "assigner_id", "assignee_id")
+    search_fields = ("title", "description", "status", "priority")
+    list_filter = ("priority", "status")

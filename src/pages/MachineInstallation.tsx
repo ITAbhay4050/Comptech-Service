@@ -1,24 +1,42 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/Layout/DashboardLayout";
 import { useAuth } from "@/context/AuthContext";
+import PurchaseVerification from "@/components/MachineInstallation/PurchaseVerification";
+
 import {
-  Card, CardContent, CardDescription, CardFooter,
-  CardHeader, CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
-import { UserRole } from "@/types";
-import { useNavigate } from "react-router-dom";
-import { CheckCircle2, AlertTriangle, Upload, X } from "lucide-react";
-import PurchaseVerification from "@/components/MachineInstallation/PurchaseVerification";
+import { toast } from "@/components/ui/use-toast";
 
-// -----------------------------------------------------------------------------
-// Types
-// -----------------------------------------------------------------------------
-type PurchasedMachine = {
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Upload,
+  X as Close,
+} from "lucide-react";
+
+import { UserRole } from "@/types";
+
+// ---------------------------------------------------------------------------
+// Constants & helpers
+// ---------------------------------------------------------------------------
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+if (!API_BASE) console.warn("⚠️  Missing VITE_API_BASE_URL env var – falling back to localhost");
+
+const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
+//   Type used by PurchaseVerification child
+export type PurchasedMachine = {
   id: string;
   model: string;
   serialNumber: string;
@@ -29,14 +47,12 @@ type PurchasedMachine = {
   dealerId: string;
 };
 
-// -----------------------------------------------------------------------------
-// Component
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 export default function MachineInstallation() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // RBAC ----------------------------------------------------------------------
+  // ----- role‑based access --------------------------------------------------
   const allowedRoles: UserRole[] = [
     UserRole.COMPANY_EMPLOYEE,
     UserRole.COMPANY_ADMIN,
@@ -45,432 +61,259 @@ export default function MachineInstallation() {
   ];
   const canAccess = allowedRoles.includes(user?.role as UserRole);
   const isDealerSide =
-    user?.role === UserRole.DEALER_EMPLOYEE ||
-    user?.role === UserRole.DEALER_ADMIN;
+    user?.role === UserRole.DEALER_EMPLOYEE || user?.role === UserRole.DEALER_ADMIN;
 
-  // State ---------------------------------------------------------------------
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // ----- local state --------------------------------------------------------
+  const [isSubmitting, setSubmitting] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [selectedMachine, setSelectedMachine] = useState<PurchasedMachine | null>(null);
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     installationDate: new Date().toISOString().split("T")[0],
-    installedBy: user?.name || "Unknown Installer",
-    // Company‑side (client) info
+    installedBy: user?.name ?? "Unknown Installer",
+
+    // company‑side (client) info
     clientCompanyName: "",
     clientGstNumber: "",
     clientContactPerson: "",
     clientContactPhone: "",
-    // Machine info (company side)
+
+    // company‑side machine info
     modelNumber: "",
     serialNumber: "",
-    // Shared
+
+    // shared
     location: "",
     notes: "",
   });
 
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    const valid = files.filter((f) => ["image/jpeg", "image/png"].includes(f.type));
-    if (valid.length !== files.length) {
+    const files = Array.from(e.target.files ?? []);
+    const accepted = files.filter(
+      (f) => ["image/jpeg", "image/png"].includes(f.type) && f.size <= MAX_SIZE,
+    );
+    if (accepted.length !== files.length)
       toast({
-        title: "Warning",
-        description: "Only JPEG and PNG files are allowed",
+        title: "Invalid file(s)",
+        description: "Only JPEG/PNG up to 5 MB are allowed",
         variant: "destructive",
       });
+    setPhotos((prev) => [...prev, ...accepted]);
+  };
+  const removePhoto = (i: number) => setPhotos((p) => p.filter((_, idx) => idx !== i));
+
+  const validateUniqueSerial = async (serial: string) => {
+    try {
+      const res = await fetch(`${API_BASE ?? "http://127.0.0.1:8000"}/api/machines/check-serial/?serial=${encodeURIComponent(serial)}`);
+      const data = await res.json();
+      return data.isUnique;
+    } catch {
+      return true; // fallback: let backend decide
     }
-    setPhotos((prev) => [...prev, ...valid]);
   };
 
-  const removePhoto = (idx: number) =>
-    setPhotos((prev) => prev.filter((_, i) => i !== idx));
-
-  const handleMachineSelected = (machine: PurchasedMachine) =>
-    setSelectedMachine(machine);
-
-  const validateUniqueSerialNumber = async (serial: string) => {
-    /* TODO: hit an API to ensure uniqueness on server side.
-       For now always returns true. */
-    return true;
-  };
-
-  // ---------------------------------------------------------------------------
-  // Submit
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  // Dealer-side must select machine
-  if (isDealerSide && !selectedMachine) {
-    toast({
-      title: "Error",
-      description: "Please select a machine from your purchase records",
-      variant: "destructive",
-    });
-    return;
-  }
+    // dealer must choose machine
+    if (isDealerSide && !selectedMachine)
+      return toast({ title: "Error", description: "Please select a machine first", variant: "destructive" });
 
-  // Company‑side required fields
-  if (!isDealerSide) {
-    const requiredFields = [
-      "clientCompanyName",
-      "clientGstNumber",
-      "clientContactPerson",
-      "clientContactPhone",
-      "modelNumber",
-      "serialNumber",
-    ];
-    const empty = requiredFields.find(
-      (f) => !formData[f as keyof typeof formData]
-    );
-    if (empty) {
-      toast({
-        title: "Error",
-        description: "Please fill all required fields",
-        variant: "destructive",
-      });
-      return;
+    // company‑side required fields
+    if (!isDealerSide) {
+      const required = [
+        "clientCompanyName",
+        "clientGstNumber",
+        "clientContactPerson",
+        "clientContactPhone",
+        "modelNumber",
+        "serialNumber",
+      ];
+      const empty = required.find((f) => !(form as any)[f]);
+      if (empty)
+        return toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+
+      if (!(await validateUniqueSerial(form.serialNumber)))
+        return toast({ title: "Error", description: "Serial number already exists", variant: "destructive" });
     }
-    if (!(await validateUniqueSerialNumber(formData.serialNumber))) {
-      toast({
-        title: "Error",
-        description: "Machine serial number already exists",
-        variant: "destructive",
-      });
-      return;
+
+    if (!form.location)
+      return toast({ title: "Error", description: "Installation location required", variant: "destructive" });
+
+    if (!window.confirm("Submit installation details?")) return;
+
+    setSubmitting(true);
+
+    const fd = new FormData();
+    fd.append("installation_date", form.installationDate);
+    fd.append("installed_by", form.installedBy);
+    fd.append("location", form.location);
+    fd.append("notes", form.notes);
+
+    if (!isDealerSide) {
+      fd.append("client_company_name", form.clientCompanyName);
+      fd.append("client_gst_number", form.clientGstNumber);
+      fd.append("client_contact_person", form.clientContactPerson);
+      fd.append("client_contact_phone", form.clientContactPhone);
+      fd.append("model_number", form.modelNumber);
+      fd.append("serial_number", form.serialNumber);
+    } else if (selectedMachine) {
+      fd.append("model_number", selectedMachine.model);
+      fd.append("serial_number", selectedMachine.serialNumber);
+      fd.append("batch_number", selectedMachine.batchNumber);
+      fd.append("invoice_number", selectedMachine.invoiceNumber);
     }
-  }
 
-  if (!formData.location) {
-    toast({
-      title: "Error",
-      description: "Please provide installation location",
-      variant: "destructive",
-    });
-    return;
-  }
+    if (user?.companyId) fd.append("company", String(user.companyId));
+    if (user?.dealerId) fd.append("dealer", String(user.dealerId));
 
-  // Extra user field validation
-  if (!user?.id || !user?.name || !user?.role) {
-    toast({
-      title: "Error",
-      description: "User details missing. Please re-login.",
-      variant: "destructive",
-    });
-    return;
-  }
+    fd.append("submitted_by_id", String(user?.id));
+    fd.append("submitted_by_name", user?.name ?? "");
+    fd.append("submitted_by_role", user?.role ?? "");
 
-  // Start submitting
-  setIsSubmitting(true);
+    photos.forEach((p) => fd.append("photos", p));
 
-  // Prepare form data
-  const fd = new FormData();
-  fd.append("installation_date", formData.installationDate);
-  fd.append("installed_by", formData.installedBy);
-  fd.append("location", formData.location);
-  fd.append("notes", formData.notes);
-
-  // Company-side machine and client info
-  if (!isDealerSide) {
-    fd.append("client_company_name", formData.clientCompanyName);
-    fd.append("client_gst_number", formData.clientGstNumber);
-    fd.append("client_contact_person", formData.clientContactPerson);
-    fd.append("client_contact_phone", formData.clientContactPhone);
-    fd.append("model_number", formData.modelNumber);
-    fd.append("serial_number", formData.serialNumber);
-  }
-
-  // Dealer-side machine details
-  if (isDealerSide && selectedMachine) {
-    fd.append("model_number", selectedMachine.model);
-    fd.append("serial_number", selectedMachine.serialNumber);
-    fd.append("batch_number", selectedMachine.batchNumber);
-    fd.append("invoice_number", selectedMachine.invoiceNumber);
-  }
-
-  // Set company or dealer foreign keys
-  if (user?.companyId) fd.append("company", String(user.companyId));
-  if (user?.dealerId) fd.append("dealer", String(user.dealerId));
-
-  // Required user info
-  fd.append("submitted_by_id", String(user.id));
-  fd.append("submitted_by_name", user.name);
-  fd.append("submitted_by_role", user.role);
-
-  // Attach photos
-  photos.forEach((photo) => fd.append("photos", photo));
-
-  // API Request
-  try {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"}/api/installations/create/`,
-      {
+    try {
+      const res = await fetch(`${API_BASE ?? "http://127.0.0.1:8000"}/api/installations/create/`, {
         method: "POST",
+        headers: user?.token ? { Authorization: `Token ${user.token}` } : undefined,
         body: fd,
-      }
-    );
+      });
+      if (!res.ok) throw new Error(await res.text());
 
-    if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(msg || "Failed");
+      toast({ title: "Success", description: "Installation saved" });
+      navigate("/machines");
+    } catch (err: any) {
+      console.error(err);
+      toast({ title: "Error", description: err.message || "Save failed", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
     }
+  };
 
-    toast({
-      title: "Success",
-      description: "Installation record saved successfully",
-    });
-    navigate("/machines");
-  } catch (err) {
-    console.error(err);
-    toast({
-      title: "Error",
-      description: "Something went wrong while saving",
-      variant: "destructive",
-    });
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-  if (!canAccess) {
+  // -------------------------------------------------------------------------
+  if (!canAccess)
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <AlertTriangle className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">
-              Only authorised roles can access this form.
-            </p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Your current role: <span className="font-medium">{user?.role}</span>
-            </p>
-          </div>
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <AlertTriangle className="h-16 w-16 text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+          <p className="text-muted-foreground">Only authorised roles can access this form.</p>
+          <p className="text-sm mt-2">Your role: <span className="font-medium">{user?.role}</span></p>
         </div>
       </DashboardLayout>
     );
-  }
 
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Dealer-side purchase verification */}
         {isDealerSide && (
           <PurchaseVerification
-            onMachineSelected={handleMachineSelected}
+            onMachineSelected={setSelectedMachine}
             selectedMachine={selectedMachine}
           />
         )}
 
-        {/* Installation form */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Machine Installation Form
-              {(selectedMachine || !isDealerSide) && (
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              )}
+              {(selectedMachine || !isDealerSide) && <CheckCircle2 className="h-5 w-5 text-green-600" />}
             </CardTitle>
             <CardDescription>
               {isDealerSide
-                ? "Complete installation details for the selected machine from purchase records"
+                ? "Complete installation details for the selected machine"
                 : "Record a new machine installation at client site"}
             </CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
-              {/* Machine Details block (company side) */}
+              {/* Company‑side machine details */}
               {!isDealerSide && (
                 <div className="border-b pb-4 space-y-4">
                   <h3 className="font-medium">Machine Details</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="modelNumber">Model Number *</Label>
-                      <Input
-                        id="modelNumber"
-                        name="modelNumber"
-                        value={formData.modelNumber}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Input id="modelNumber" name="modelNumber" value={form.modelNumber} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="serialNumber">Serial Number *</Label>
-                      <Input
-                        id="serialNumber"
-                        name="serialNumber"
-                        value={formData.serialNumber}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Input id="serialNumber" name="serialNumber" value={form.serialNumber} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Client info (company side) */}
+              {/* Company‑side client info */}
               {!isDealerSide && (
                 <div className="border-b pb-4 space-y-4">
                   <h3 className="font-medium">Client Information</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="clientCompanyName">
-                        Client Company Name *
-                      </Label>
-                      <Input
-                        id="clientCompanyName"
-                        name="clientCompanyName"
-                        value={formData.clientCompanyName}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Label htmlFor="clientCompanyName">Client Company Name *</Label>
+                      <Input id="clientCompanyName" name="clientCompanyName" value={form.clientCompanyName} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="clientGstNumber">Client GST Number *</Label>
-                      <Input
-                        id="clientGstNumber"
-                        name="clientGstNumber"
-                        value={formData.clientGstNumber}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Input id="clientGstNumber" name="clientGstNumber" value={form.clientGstNumber} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="clientContactPerson">Contact Person *</Label>
-                      <Input
-                        id="clientContactPerson"
-                        name="clientContactPerson"
-                        value={formData.clientContactPerson}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Input id="clientContactPerson" name="clientContactPerson" value={form.clientContactPerson} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="clientContactPhone">Contact Phone *</Label>
-                      <Input
-                        id="clientContactPhone"
-                        name="clientContactPhone"
-                        value={formData.clientContactPhone}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                        required
-                      />
+                      <Input id="clientContactPhone" name="clientContactPhone" value={form.clientContactPhone} onChange={handleChange} disabled={isSubmitting} required />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Shared fields */}
+              {/* Shared installation details */}
               <div className="border-b pb-4 space-y-4">
                 <h3 className="font-medium">Installation Details</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="installationDate">
-                      Installation Date *
-                    </Label>
-                    <Input
-                      id="installationDate"
-                      name="installationDate"
-                      type="date"
-                      value={formData.installationDate}
-                      onChange={handleChange}
-                      disabled={isSubmitting}
-                      required
-                    />
+                    <Label htmlFor="installationDate">Installation Date *</Label>
+                    <Input id="installationDate" name="installationDate" type="date" value={form.installationDate} onChange={handleChange} disabled={isSubmitting} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="installedBy">Installed By *</Label>
-                    <Input
-                      id="installedBy"
-                      name="installedBy"
-                      value={formData.installedBy}
-                      disabled
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Auto‑filled with your name
-                    </p>
+                    <Input id="installedBy" name="installedBy" value={form.installedBy} disabled />
+                    <p className="text-xs text-muted-foreground">Auto‑filled with your name</p>
                   </div>
                 </div>
-
-                {/* Location */}
                 <div className="space-y-2">
                   <Label htmlFor="location">Installation Address *</Label>
-                  <Textarea
-                    id="location"
-                    name="location"
-                    rows={3}
-                    placeholder="Enter full installation address..."
-                    value={formData.location}
-                    onChange={handleChange}
-                    disabled={isSubmitting}
-                    required
-                  />
+                  <Textarea id="location" name="location" rows={3} value={form.location} onChange={handleChange} disabled={isSubmitting} required />
                 </div>
               </div>
 
-              {/* Photos */}
+              {/* Photos upload */}
               <div className="space-y-2">
-                <Label htmlFor="photos">Installation Photos (JPEG/PNG)</Label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                  <div className="text-center">
-                    <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600 mb-2">
-                      Upload installation photos
-                    </p>
-                    <input
-                      id="photos"
-                      type="file"
-                      accept="image/jpeg,image/png"
-                      multiple
-                      className="hidden"
-                      onChange={handlePhotoUpload}
-                      disabled={isSubmitting}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => document.getElementById("photos")?.click()}
-                      disabled={isSubmitting}
-                    >
-                      Choose Photos
-                    </Button>
-                  </div>
+                <Label>Installation Photos (JPEG/PNG ≤ 5 MB each)</Label>
+                <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                  <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-600 mb-3">Upload installation photos</p>
+                  <input id="photos" type="file" accept="image/jpeg,image/png" multiple className="hidden" onChange={handlePhotoUpload} disabled={isSubmitting} />
+                  <Button type="button" variant="outline" onClick={() => document.getElementById("photos")?.click()} disabled={isSubmitting}>Choose Photos</Button>
 
                   {photos.length > 0 && (
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       {photos.map((p, idx) => (
                         <div key={idx} className="relative bg-gray-100 rounded p-2">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="truncate max-w-[140px]">{p.name}</span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={isSubmitting}
-                              onClick={() => removePhoto(idx)}
-                            >
-                              <X className="h-4 w-4" />
+                            <span className="truncate max-w-[140px]" title={p.name}>{p.name}</span>
+                            <Button type="button" size="icon" variant="ghost" onClick={() => removePhoto(idx)} disabled={isSubmitting}>
+                              <Close className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
@@ -483,37 +326,15 @@ export default function MachineInstallation() {
               {/* Notes */}
               <div className="space-y-2">
                 <Label htmlFor="notes">Additional Notes</Label>
-                <Textarea
-                  id="notes"
-                  name="notes"
-                  rows={4}
-                  placeholder="Any additional observations..."
-                  value={formData.notes}
-                  onChange={handleChange}
-                  disabled={isSubmitting}
-                />
+                <Textarea id="notes" name="notes" rows={4} value={form.notes} onChange={handleChange} disabled={isSubmitting} />
               </div>
             </CardContent>
 
             <CardFooter className="flex justify-between">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate(-1)}
-                disabled={isSubmitting}
-              >
-                Cancel
+              <Button type="button" variant="outline" onClick={() => navigate(-1)} disabled={isSubmitting}>Cancel</Button>
+              <Button type="submit" disabled={isSubmitting || (isDealerSide && !selectedMachine)}>
+                {isSubmitting ? "Submitting…" : "Submit Installation"}
               </Button>
-             <Button
-  type="submit"
-  // 🔧 Dealer machine selection disable condition temporarily commented
-  disabled={
-    isSubmitting
-    // || (isDealerSide && !selectedMachine)
-  }
->
-  {isSubmitting ? "Submitting..." : "Submit Installation"}
-</Button>
             </CardFooter>
           </form>
         </Card>

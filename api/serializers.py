@@ -8,14 +8,20 @@ class CompanySerializer(serializers.ModelSerializer):
 
 class DealerSerializer(serializers.ModelSerializer):
     company_name = serializers.CharField(source='company.name', read_only=True)
+    isDirect = serializers.BooleanField(write_only=True, required=False)
 
     class Meta:
         model = Dealer
         fields = [
             'id', 'company', 'company_name', 'name', 'email', 'phone', 'address', 
             'city', 'state', 'country', 'pin_code', 'gst_no', 'pan_no', 
-            'password', 'created_at'
+            'password', 'created_at', 'isDirect'
         ]
+
+    def create(self, validated_data):
+        # ✅ Remove `isDirect` before creating Dealer object
+        validated_data.pop('isDirect', None)
+        return super().create(validated_data)
 class MachineInstallationSerializer(serializers.ModelSerializer):
     photos = serializers.ListField(
         child=serializers.ImageField(max_length=5_000_000, allow_empty_file=False, use_url=False),
@@ -40,3 +46,7 @@ class MachineInstallationSerializer(serializers.ModelSerializer):
             InstallationPhoto.objects.create(installation=installation, photo=img)
 
         return installation
+class TaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Task
+        fields = '__all__'

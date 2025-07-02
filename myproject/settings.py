@@ -1,139 +1,182 @@
+"""Django settings for *myproject* (Comptech Equipment LIMITED).
+Updated 2 July 2025: fixed DRF permission class, moved secrets to env vars,
+added MySQL strict‑mode, clarified typing.
+
+⚠️  Do **NOT** commit this file with real credentials – use .env instead.
+"""
+
 from pathlib import Path
+import os
+from dotenv import load_dotenv
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+# -----------------------------------------------------------------------------
+# Base path & .env loader
+# -----------------------------------------------------------------------------
+BASE_DIR: Path = Path(__file__).resolve().parent.parent
+load_dotenv(str(BASE_DIR / ".env"))  # accepts str on Windows
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-6)yx80rai+(0^8ij88aj$8f359qz6v+p*(5rx3o%j%v3zsu*xa'
+# -----------------------------------------------------------------------------
+# Core settings
+# -----------------------------------------------------------------------------
+SECRET_KEY: str = os.getenv("DJ_SECRET_KEY", "django‑insecure‑please_change_me")
+DEBUG: bool = os.getenv("DJ_DEBUG", "True").lower() == "true"
+ALLOWED_HOSTS: list[str] = [host.strip() for host in os.getenv("DJ_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")]
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# -----------------------------------------------------------------------------
+# Applications
+# -----------------------------------------------------------------------------
+INSTALLED_APPS: list[str] = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '192.168.20.61',
+    # 3rd‑party
+    "rest_framework",
+    "rest_framework.authtoken",
+    "corsheaders",
+
+    # local
+    "api",
 ]
 
-# Application definition
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'rest_framework.authtoken',  
-    'corsheaders',
-    'api',
+# -----------------------------------------------------------------------------
+# Middleware
+# -----------------------------------------------------------------------------
+MIDDLEWARE: list[str] = [
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # keep above CommonMiddleware
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
+ROOT_URLCONF: str = "myproject.urls"
+WSGI_APPLICATION: str = "myproject.wsgi.application"
 
-ROOT_URLCONF = 'myproject.urls'
-
-TEMPLATES = [
+# -----------------------------------------------------------------------------
+# Templates
+# -----------------------------------------------------------------------------
+TEMPLATES: list[dict] = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-            ],
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ]
         },
-    },
-]
-
-WSGI_APPLICATION = 'myproject.wsgi.application'
-
-# Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        # Uncomment below to use MySQL instead of SQLite
-        # 'ENGINE': 'django.db.backends.mysql',
-        # 'NAME': 'Test',
-        # 'USER': 'sa',
-        # 'PASSWORD': 'nipl@12345',
-        # 'HOST': '192.168.1.5',
-        # 'PORT': '5688',
     }
-}
-
-
-# Password validation
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
 ]
 
-# Internationalization
-# Internationalization
+# -----------------------------------------------------------------------------
+# Database: choose MySQL if DJ_DB_ENGINE == "mysql" else SQLite fallback.
+# -----------------------------------------------------------------------------
+DB_ENGINE: str = os.getenv("DJ_DB_ENGINE", "sqlite").lower()
+if DB_ENGINE == "mysql":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": os.getenv("DJ_DB_NAME", "munim008"),
+            "USER": os.getenv("DJ_DB_USER", "sa"),
+            "PASSWORD": os.getenv("DJ_DB_PASSWORD", "comptech"),
+            "HOST": os.getenv("DJ_DB_HOST", "192.168.1.5"),
+            "PORT": os.getenv("DJ_DB_PORT", "5688"),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                # ensure strict mode so silent truncations don’t happen
+                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
+# -----------------------------------------------------------------------------
+# Password validation
+# -----------------------------------------------------------------------------
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# -----------------------------------------------------------------------------
+# Internationalisation
+# -----------------------------------------------------------------------------
 LANGUAGE_CODE = "en-us"
-
-# IST = Indian Standard Time  (UTC +05:30)
-TIME_ZONE = "Asia/Kolkata"    
+TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
-USE_TZ = True                   
-               
+USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
-STATIC_URL = 'static/'
+# -----------------------------------------------------------------------------
+# Static & media
+# -----------------------------------------------------------------------------
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
-# Default primary key field type
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# REST Framework Settings (merged properly)
+# -----------------------------------------------------------------------------
+# Django REST Framework defaults
+# -----------------------------------------------------------------------------
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',  # Allow login without token
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",  # ← fixed
     ],
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
-    ]
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
 }
 
+# -----------------------------------------------------------------------------
+# CORS
+# -----------------------------------------------------------------------------
+CORS_ALLOW_ALL_ORIGINS: bool = os.getenv("DJ_CORS_ALLOW_ALL", "True").lower() == "true"
+if not CORS_ALLOW_ALL_ORIGINS:
+    CORS_ALLOWED_ORIGINS: list[str] = [origin.strip() for origin in os.getenv("DJ_CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 
-# CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_HEADERS = ['*']
-CORS_ALLOW_METHODS = ['*']
-
-# Email Configuration (Gmail SMTP)
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
+# -----------------------------------------------------------------------------
+# Email (SMTP) – use App Password stored in env var for security
+# -----------------------------------------------------------------------------
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'it02comptech@gmail.com'
-EMAIL_HOST_PASSWORD = 'ytno qhlv ihnz mqlx'  # App Password from Gmail
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+EMAIL_HOST_USER = os.getenv("DJ_EMAIL_USER", "it02comptech@gmail.com")
+EMAIL_HOST_PASSWORD = os.getenv("DJ_EMAIL_APP_PWD", "replace_me")
 
+# -----------------------------------------------------------------------------
+# Logging – simple console output even when DEBUG=False
+# -----------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}

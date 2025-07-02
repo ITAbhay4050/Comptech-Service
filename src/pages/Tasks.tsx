@@ -1,11 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import DashboardLayout from "@/components/Layout/DashboardLayout";
 import { useAuth } from "@/context/AuthContext";
 import { Task, UserRole } from "@/types";
 
-/* ---------- UI components (split imports) ---------- */
+/* UI kit */
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -25,7 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "@/components/ui/use-toast";
 
+/* Icons */
 import {
   Plus,
   Search,
@@ -35,220 +42,196 @@ import {
   XCircle,
   AlertTriangle,
 } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
+/* Config & helpers                                                   */
 /* ------------------------------------------------------------------ */
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
 
-const generateId = () => Date.now().toString();
+const apiFetch = async (
+  path: string,
+  options: RequestInit = {},
+  token?: string,
+) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Token ${token}` } : {}),
+    ...(options.headers || {}),
+  } as HeadersInit;
 
-/** Priority badge */
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+    throw new Error(err.detail || "Request failed");
+  }
+  return res.json();
+};
+
+const normaliseTask = (t: any): Task => ({
+  id: String(t.id),
+  title: t.title,
+  description: t.description,
+  created_at: t.created_at,
+  deadline: t.deadline,
+  priority: t.priority,
+  status: t.status,
+  assigner_id: String(t.assigner_id),
+  assignee_id: String(t.assignee_id),
+  machine_id: t.machine_id,
+});
+
+/* ------------------------------------------------------------------ */
+/* Badges                                                             */
+/* ------------------------------------------------------------------ */
 const PriorityBadge = ({ p }: { p: Task["priority"] }) => {
-  const map: Record<Task["priority"], string> = {
+  const map = {
     low: "bg-blue-100 text-blue-800 border-blue-300",
     medium: "bg-green-100 text-green-800 border-green-300",
     high: "bg-orange-100 text-orange-800 border-orange-300",
     urgent: "bg-red-100 text-red-800 border-red-300",
-  };
-  return <Badge className={map[p]}>{p[0].toUpperCase() + p.slice(1)}</Badge>;
+  } as const;
+  return <Badge className={map[p]}>{p.toUpperCase()}</Badge>;
 };
 
-/** Status badge */
 const StatusBadge = ({ s }: { s: Task["status"] }) => {
-  switch (s) {
-    case "pending":
-      return (
-        <Badge
-          variant="outline"
-          className="flex items-center gap-1 bg-amber-100 text-amber-800 border-amber-300"
-        >
-          <Clock className="h-3 w-3" />
-          Pending
-        </Badge>
-      );
-    case "in-progress":
-      return (
-        <Badge
-          variant="outline"
-          className="flex items-center gap-1 bg-blue-100 text-blue-800 border-blue-300"
-        >
-          <AlertTriangle className="h-3 w-3" />
-          In&nbsp;Progress
-        </Badge>
-      );
-    case "completed":
-      return (
-        <Badge
-          variant="outline"
-          className="flex items-center gap-1 bg-green-100 text-green-800 border-green-300"
-        >
-          <CheckCircle className="h-3 w-3" />
-          Completed
-        </Badge>
-      );
-    case "cancelled":
-      return (
-        <Badge
-          variant="outline"
-          className="flex items-center gap-1 bg-red-100 text-red-800 border-red-300"
-        >
-          <XCircle className="h-3 w-3" />
-          Cancelled
-        </Badge>
-      );
-    default:
-      return <Badge variant="outline">Unknown</Badge>;
-  }
+  const badgeMap: Record<Task["status"], JSX.Element> = {
+    pending: (
+      <Badge className="flex items-center gap-1 bg-amber-100 text-amber-800 border-amber-300">
+        <Clock className="h-3 w-3" /> Pending
+      </Badge>
+    ),
+    "in-progress": (
+      <Badge className="flex items-center gap-1 bg-blue-100 text-blue-800 border-blue-300">
+        <AlertTriangle className="h-3 w-3" /> In&nbsp;Progress
+      </Badge>
+    ),
+    completed: (
+      <Badge className="flex items-center gap-1 bg-green-100 text-green-800 border-green-300">
+        <CheckCircle className="h-3 w-3" /> Completed
+      </Badge>
+    ),
+    cancelled: (
+      <Badge className="flex items-center gap-1 bg-red-100 text-red-800 border-red-300">
+        <XCircle className="h-3 w-3" /> Cancelled
+      </Badge>
+    ),
+  };
+  return badgeMap[s];
 };
 
 /* ------------------------------------------------------------------ */
-/*  Component                                                         */
+/* Component                                                          */
 /* ------------------------------------------------------------------ */
-
 const Tasks = () => {
   const { user } = useAuth();
+  const token = user?.token;
 
-  /* ------------------------- state ------------------------- */
-  const [tasks, setTasks] = useState<Task[]>([
-    {
-      id: "1",
-      title: "Install CLX-5000 at Client HQ",
-      description: "New machine installation at client headquarters",
-      createdAt: "2023-05-10",
-      deadline: "2023-05-15",
-      priority: "high",
-      status: "completed",
-      assignerId: "2",
-      assigneeId: "3",
-      machineId: "1",
-    },
-    {
-      id: "2",
-      title: "Verify RVX-300 installation",
-      description: "Perform quality check on recent installation",
-      createdAt: "2023-06-18",
-      deadline: "2023-06-22",
-      priority: "medium",
-      status: "completed",
-      assignerId: "2",
-      assigneeId: "3",
-      machineId: "2",
-    },
-    {
-      id: "3",
-      title: "Prepare site for CLX-6000 installation",
-      description: "Visit client site and ensure all requirements are met",
-      createdAt: "2023-07-01",
-      deadline: "2023-07-10",
-      priority: "low",
-      status: "pending",
-      assignerId: "4",
-      assigneeId: "5",
-      machineId: "3",
-    },
-    {
-      id: "4",
-      title: "Repair RVX-200 cooling system",
-      description: "Client reported overheating issues",
-      createdAt: "2023-04-05",
-      deadline: "2023-04-10",
-      priority: "urgent",
-      status: "in-progress",
-      assignerId: "2",
-      assigneeId: "3",
-      machineId: "4",
-    },
-  ]);
-
+  /* ---------------- state --------------- */
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [searchTerm, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<Task["status"] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [draft, setDraft] = useState<Partial<Task>>({
+  const [loading, setLoading] = useState(true);
+
+  const resetDraft = (): Partial<Task> => ({
     title: "",
     description: "",
     deadline: new Date().toISOString().split("T")[0],
     priority: "medium",
     status: "pending",
-    assignerId: user?.id,
+    assigner_id: String(user?.id),
+    assignee_id: "",
+    machine_id: "NA",
   });
+  const [draft, setDraft] = useState<Partial<Task>>(resetDraft);
 
-  /* --------------------- permissions --------------------- */
-  const canAssign =
-    user?.role === UserRole.APPLICATION_ADMIN ||
-    user?.role === UserRole.COMPANY_ADMIN ||
-    user?.role === UserRole.DEALER_ADMIN ||
-    user?.role === UserRole.COMPANY_EMPLOYEE;
+  const canAssign = [
+    UserRole.APPLICATION_ADMIN,
+    UserRole.COMPANY_ADMIN,
+    UserRole.DEALER_ADMIN,
+    UserRole.COMPANY_EMPLOYEE,
+  ].includes(user?.role as UserRole);
 
-  /* --------------------- filtering ----------------------- */
-  const visibleTasks = tasks.filter((t) => {
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter ? t.status === statusFilter : true;
-
-    if (
-      user?.role === UserRole.COMPANY_EMPLOYEE ||
-      user?.role === UserRole.DEALER_EMPLOYEE
-    ) {
-      return matchesSearch && matchesStatus && t.assigneeId === user.id;
-    }
-    if (user?.role === UserRole.DEALER_ADMIN) {
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        (t.assignerId === user.id || t.assigneeId === user.id)
+  /* --------------- fetch list -------------- */
+  const fetchTasks = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch("/tasks/", {}, token);
+      const list: Task[] = (Array.isArray(data) ? data : data.results).map(
+        normaliseTask,
       );
+      setTasks(list);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Fetch failed" });
+    } finally {
+      setLoading(false);
     }
-    return matchesSearch && matchesStatus;
-  });
-
-  /* -------------------- create task ---------------------- */
-  const handleCreate = () => {
-    if (!draft.title || !draft.description || !draft.assigneeId) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const newTask: Task = {
-      ...(draft as Task),
-      id: generateId(),
-      createdAt: new Date().toISOString().split("T")[0],
-    };
-    setTasks((prev) => [...prev, newTask]);
-    toast({ title: "Success", description: "Task created." });
-    setDialogOpen(false);
-    setDraft({
-      title: "",
-      description: "",
-      deadline: new Date().toISOString().split("T")[0],
-      priority: "medium",
-      status: "pending",
-      assignerId: user?.id,
-    });
   };
 
-  /* ------------------------- JSX ------------------------- */
+  useEffect(() => {
+    if (token) fetchTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  /* ------------- visible list ------------- */
+  const visibleTasks = tasks.filter((t) => {
+    const hitsSearch =
+      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.description.toLowerCase().includes(searchTerm.toLowerCase());
+    const hitsStatus = statusFilter ? t.status === statusFilter : true;
+
+    if ([UserRole.COMPANY_EMPLOYEE, UserRole.DEALER_EMPLOYEE].includes(user?.role as UserRole))
+      return hitsSearch && hitsStatus && t.assignee_id === String(user?.id);
+
+    if (user?.role === UserRole.DEALER_ADMIN)
+      return (
+        hitsSearch &&
+        hitsStatus &&
+        (t.assigner_id === String(user?.id) || t.assignee_id === String(user?.id))
+      );
+
+    return hitsSearch && hitsStatus;
+  });
+
+  /* --------------- create task ------------- */
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!draft.title || !draft.description || !draft.assignee_id) {
+      toast({ title: "Error", description: "Fill all required fields", variant: "destructive" });
+      return;
+    }
+    try {
+      const newTask: Task = await apiFetch(
+        "/tasks/",
+        { method: "POST", body: JSON.stringify(draft) },
+        token,
+      );
+      setTasks((prev) => [...prev, normaliseTask(newTask)]);
+      toast({ title: "Success", description: "Task created." });
+      setDialogOpen(false);
+      setDraft(resetDraft());
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Create failed" });
+    }
+  };
+
+  /* ---------------------------- JSX ------------------------ */
   return (
     <DashboardLayout>
       <div className="space-y-4">
-        {/* header row */}
-        <div className="flex flex-col sm:flex-row justify-between gap-4">
+        <div className="flex justify-between">
           <h2 className="text-3xl font-bold">Tasks</h2>
           <Button
             disabled={!canAssign}
             onClick={() => setDialogOpen(true)}
-            className="flex items-center gap-2 self-start sm:self-auto"
+            className="flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
             Create Task
           </Button>
         </div>
 
-        {/* card */}
+        {/* ---------------- Table Card ---------------- */}
         <Card>
           <CardHeader>
             <CardTitle>Task Management</CardTitle>
@@ -268,18 +251,14 @@ const Tasks = () => {
               <div className="flex items-center gap-2">
                 <FilterIcon className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">Filter:</span>
-                {["All", "pending", "in-progress", "completed"].map((s) => (
+                {['All', 'pending', 'in-progress', 'completed'].map((s) => (
                   <Button
                     key={s}
                     size="sm"
                     variant={
-                      statusFilter === (s === "All" ? null : s)
-                        ? "secondary"
-                        : "outline"
+                      statusFilter === (s === 'All' ? null : s) ? 'secondary' : 'outline'
                     }
-                    onClick={() =>
-                      setStatusFilter(s === "All" ? null : (s as any))
-                    }
+                    onClick={() => setStatusFilter(s === 'All' ? null : (s as any))}
                   >
                     {s[0].toUpperCase() + s.slice(1)}
                   </Button>
@@ -300,12 +279,15 @@ const Tasks = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleTasks.length === 0 ? (
+                  {loading ? (
                     <tr>
-                      <td
-                        colSpan={5}
-                        className="px-4 py-6 text-center text-muted-foreground"
-                      >
+                      <td colSpan={5} className="px-4 py-6 text-center">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : visibleTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                         No tasks found
                       </td>
                     </tr>
@@ -317,9 +299,7 @@ const Tasks = () => {
                       >
                         <td className="px-4 py-3">
                           <p className="font-medium">{t.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {t.description}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{t.description}</p>
                         </td>
                         <td className="px-4 py-3">{t.deadline}</td>
                         <td className="px-4 py-3">
@@ -342,7 +322,7 @@ const Tasks = () => {
           </CardContent>
         </Card>
 
-        {/* dialog */}
+        {/* ---------------- Create Task Dialog -------------- */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
@@ -358,9 +338,7 @@ const Tasks = () => {
                 <Input
                   id="title"
                   value={draft.title}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, title: e.target.value }))
-                  }
+                  onChange={({ target }) => setDraft((d) => ({ ...d, title: target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -369,8 +347,8 @@ const Tasks = () => {
                   id="desc"
                   rows={3}
                   value={draft.description}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, description: e.target.value }))
+                  onChange={({ target }) =>
+                    setDraft((d) => ({ ...d, description: target.value }))
                   }
                 />
               </div>
@@ -381,8 +359,8 @@ const Tasks = () => {
                     id="deadline"
                     type="date"
                     value={draft.deadline}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, deadline: e.target.value }))
+                    onChange={({ target }) =>
+                      setDraft((d) => ({ ...d, deadline: target.value }))
                     }
                   />
                 </div>
@@ -390,15 +368,13 @@ const Tasks = () => {
                   <Label>Priority *</Label>
                   <Select
                     value={draft.priority}
-                    onValueChange={(v) =>
-                      setDraft((d) => ({ ...d, priority: v as any }))
-                    }
+                    onValueChange={(v) => setDraft((d) => ({ ...d, priority: v as any }))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Priority" />
                     </SelectTrigger>
                     <SelectContent>
-                      {["low", "medium", "high", "urgent"].map((p) => (
+                      {['low', 'medium', 'high', 'urgent'].map((p) => (
                         <SelectItem key={p} value={p}>
                           {p[0].toUpperCase() + p.slice(1)}
                         </SelectItem>
@@ -410,31 +386,15 @@ const Tasks = () => {
               <div className="space-y-2">
                 <Label>Assign To *</Label>
                 <Select
-                  value={draft.assigneeId}
-                  onValueChange={(v) =>
-                    setDraft((d) => ({ ...d, assigneeId: v }))
-                  }
+                  value={draft.assignee_id}
+                  onValueChange={(v) => setDraft((d) => ({ ...d, assignee_id: v }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select assignee" />
                   </SelectTrigger>
                   <SelectContent>
-                    {[
-                      {
-                        id: "3",
-                        name: "Company Employee",
-                        role: "COMPANY_EMPLOYEE",
-                      },
-                      {
-                        id: "5",
-                        name: "Dealer Employee",
-                        role: "DEALER_EMPLOYEE",
-                      },
-                    ].map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name} ({u.role.replace("_", " ")})
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="3">Company Employee</SelectItem>
+                    <SelectItem value="5">Dealer Employee</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

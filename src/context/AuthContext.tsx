@@ -1,94 +1,133 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import { User, UserRole } from "@/types";
 
-type AuthContextType = {
-  user: User | null;
-  setUser: (user: User | null) => void;
-  login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
-  register: (user: Partial<User>) => Promise<boolean>;
-  isAuthenticated: boolean;
-  isLoading: boolean;
+/* ------------------------------------------------------------------ */
+/* Helper types                                                        */
+/* ------------------------------------------------------------------ */
+export type AuthUser = User & {
+  /** DRF token for Authorization header */
+  token: string;
+  /** Present only when user_type === "dealer" */
+  dealerId?: string;
+  /** Present only when user_type === "company" */
+  companyId?: string;
 };
 
+interface AuthContextType {
+  user: AuthUser | null;
+  setUser: (u: AuthUser | null) => void;
+  login: (email: string, password: string) => Promise<boolean>;
+  logout: () => void;
+  registerDealer: (u: Partial<User>) => Promise<boolean>;
+  registerCompany: (u: Partial<User>) => Promise<boolean>;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* React context                                                       */
+/* ------------------------------------------------------------------ */
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+/* Use Vite env var if provided, fallback to localhost */
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
 
+/* ------------------------------------------------------------------ */
+/* Provider component                                                  */
+/* ------------------------------------------------------------------ */
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  /* ---------- bootstrap from localStorage ---------- */
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    const storedToken = localStorage.getItem("token");
-    if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-    }
+    const stored = localStorage.getItem("user");
+    if (stored) setUser(JSON.parse(stored));
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  /* ---------- login ---------- */
+  const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/login/", {
+      const res = await fetch(`${API_BASE}/login/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ email, password })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) throw new Error("Invalid credentials");
-
       const data = await res.json();
 
-      const loggedInUser: User = {
-         id: data.dealer_id ?? data.company_id,
-        name: data.user.name,
-        email: data.user.email,
-        role: data.user.role,
-        companyId: data.user.company_id,
-        dealerId: data.user.dealer_id
+      // API shape: { token, user_type, dealer_id?, company_id?, name, role }
+      const loggedInUser: AuthUser = {
+        id: String(data.dealer_id ?? data.company_id),
+        name: data.name,
+        email,
+        role: data.role as UserRole,
+        companyId: data.company_id ? String(data.company_id) : undefined,
+        dealerId: data.dealer_id ? String(data.dealer_id) : undefined,
+        token: data.token,
       };
 
-   localStorage.setItem("user", JSON.stringify(loggedInUser));
-localStorage.setItem("token", data.token);   // <-- key “token” hi rahe
-setUser(loggedInUser);
-
+      localStorage.setItem("user", JSON.stringify(loggedInUser));
       setUser(loggedInUser);
-      setIsLoading(false);
       return true;
-    } catch (error) {
-      console.error("Login failed:", error);
-      setIsLoading(false);
+    } catch (err) {
+      console.error("Login failed:", err);
       return false;
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  /* ---------- logout ---------- */
   const logout = () => {
-    setUser(null);
     localStorage.removeItem("user");
-    localStorage.removeItem("token");
+    setUser(null);
   };
 
-  const register = async (newUser: Partial<User>): Promise<boolean> => {
+  /* ---------- register dealer ---------- */
+  const registerDealer = async (newUser: Partial<User>) => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/register/", {
+      const res = await fetch(`${API_BASE}/register/dealer/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(newUser)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
       });
-
       if (!res.ok) throw new Error("Registration failed");
-
-      setIsLoading(false);
       return true;
-    } catch (error) {
-      console.error("Registration failed:", error);
-      setIsLoading(false);
+    } catch (err) {
+      console.error("Dealer registration failed:", err);
       return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /* ---------- register company ---------- */
+  const registerCompany = async (newUser: Partial<User>) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/register/company/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
+      });
+      if (!res.ok) throw new Error("Registration failed");
+      return true;
+    } catch (err) {
+      console.error("Company registration failed:", err);
+      return false;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -99,9 +138,10 @@ setUser(loggedInUser);
         setUser,
         login,
         logout,
-        register,
+        registerDealer,
+        registerCompany,
         isAuthenticated: !!user,
-        isLoading
+        isLoading,
       }}
     >
       {children}
@@ -109,10 +149,11 @@ setUser(loggedInUser);
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
+/* ------------------------------------------------------------------ */
+/* Consumer hook                                                      */
+/* ------------------------------------------------------------------ */
+export const useAuth = (): AuthContextType => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
 };
