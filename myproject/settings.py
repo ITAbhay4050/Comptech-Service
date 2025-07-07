@@ -159,12 +159,12 @@ if not CORS_ALLOW_ALL_ORIGINS:
 # -----------------------------------------------------------------------------
 # Email (SMTP) – use App Password stored in env var for security
 # -----------------------------------------------------------------------------
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv("DJ_EMAIL_USER", "it02comptech@gmail.com")
-EMAIL_HOST_PASSWORD = os.getenv("DJ_EMAIL_APP_PWD", "replace_me")
+EMAIL_HOST_USER = 'it02comptech@gmail.com'
+EMAIL_HOST_PASSWORD = 'ytno qhlv ihnz mqlx' 
 
 # -----------------------------------------------------------------------------
 # Logging – simple console output even when DEBUG=False

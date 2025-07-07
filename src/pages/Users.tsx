@@ -1,6 +1,7 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import DashboardLayout from "@/components/Layout/DashboardLayout";
 import { useAuth } from "@/context/AuthContext";
+
 import {
   Card,
   CardContent,
@@ -45,11 +46,52 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { User, UserRole, Company, UserStatus } from "@/types";
+import {
+  User,
+  UserRole,
+  Company,
+  Dealer,
+  UserStatus,
+} from "@/types";
+import { toast } from "@/components/ui/use-toast";
 
-/** ------------------------------------------------------------------
- * 1. ROLE HELPERS (single source of truth)
- * ------------------------------------------------------------------*/
+/* ------------------------------------------------------------------ */
+/* ENV / HELPERS                                                      */
+/* ------------------------------------------------------------------ */
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
+const makeAuthHeaders = (token?: string) =>
+  token
+    ? { Authorization: `Token ${token}`, "Content-Type": "application/json" }
+    : { "Content-Type": "application/json" };
+
+const normaliseDealer = (d: any): Dealer => ({
+  id: String(d.id),
+  companyId: String(d.company),
+  name: d.name,
+  contactPerson: d.contact_person ?? d.name,
+  contactEmail: d.email,
+  contactPhone: d.phone,
+  address: d.address,
+  gstNumber: d.gst_number,
+});
+
+const normaliseEmployee = (e: any): User => ({
+  id: String(e.id),
+  name: e.name,
+  email: e.email,
+  phone: e.phone,
+  username: e.email.split("@")[0],
+  role: e.role as UserRole,
+  department: e.department,
+  status: e.is_active ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+  companyId: e.company ? String(e.company) : undefined,
+  dealerId: e.dealer ? String(e.dealer) : undefined,
+  createdAt: e.created_at,
+});
+
+/* ------------------------------------------------------------------ */
+/* ROLE HELPERS                                                       */
+/* ------------------------------------------------------------------ */
 export const roleOptions: { value: UserRole; label: string }[] = [
   { value: UserRole.APPLICATION_ADMIN, label: "System Admin" },
   { value: UserRole.COMPANY_ADMIN, label: "Company Admin" },
@@ -78,9 +120,9 @@ const getRoleBadgeColor = (role: UserRole) => {
   }
 };
 
-/** ------------------------------------------------------------------
- * 2. MOCK DATA (combined superset from both files)
- * ------------------------------------------------------------------*/
+/* ------------------------------------------------------------------ */
+/* MOCK COMPANIES – replace with API if needed                        */
+/* ------------------------------------------------------------------ */
 const mockCompanies: Company[] = [
   {
     id: "1",
@@ -132,123 +174,125 @@ const mockCompanies: Company[] = [
   },
 ];
 
-const mockUsers: User[] = [
-  {
-    id: "1",
-    name: "System Admin",
-    email: "admin@system.com",
-    phone: "+1-555-0001",
-    username: "admin",
-    role: UserRole.APPLICATION_ADMIN,
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-01T00:00:00Z",
-  },
-  {
-    id: "2",
-    name: "Company Admin",
-    email: "admin@company.com",
-    phone: "+1-555-0002",
-    username: "companyadmin",
-    role: UserRole.COMPANY_ADMIN,
-    companyId: "1",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-02T00:00:00Z",
-  },
-  {
-    id: "3",
-    name: "John Doe",
-    email: "john.doe@company.com",
-    phone: "+1-555-0003",
-    username: "johndoe",
-    role: UserRole.COMPANY_EMPLOYEE,
-    companyId: "1",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-03T00:00:00Z",
-  },
-  {
-    id: "4",
-    name: "Jane Smith",
-    email: "jane.smith@company.com",
-    phone: "+1-555-0004",
-    username: "janesmith",
-    role: UserRole.COMPANY_EMPLOYEE,
-    companyId: "1",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-04T00:00:00Z",
-  },
-  {
-    id: "5",
-    name: "Dealer Admin",
-    email: "admin@dealer.com",
-    phone: "+1-555-0005",
-    username: "dealeradmin",
-    role: UserRole.DEALER_ADMIN,
-    dealerId: "1",
-    companyId: "1",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-05T00:00:00Z",
-  },
-  {
-    id: "6",
-    name: "Mike Johnson",
-    email: "mike.johnson@dealer.com",
-    phone: "+1-555-0006",
-    username: "mikejohnson",
-    role: UserRole.DEALER_EMPLOYEE,
-    dealerId: "1",
-    companyId: "1",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-06T00:00:00Z",
-  },
-  {
-    id: "7",
-    name: "Sarah Wilson",
-    email: "sarah.wilson@mansol.com",
-    phone: "+1-555-0007",
-    username: "sarahwilson",
-    role: UserRole.COMPANY_ADMIN,
-    companyId: "2",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-07T00:00:00Z",
-  },
-  {
-    id: "8",
-    name: "Tom Brown",
-    email: "tom.brown@mansol.com",
-    phone: "+1-555-0008",
-    username: "tombrown",
-    role: UserRole.COMPANY_EMPLOYEE,
-    companyId: "2",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-08T00:00:00Z",
-  },
-  {
-    id: "9",
-    name: "Lisa Davis",
-    email: "lisa.davis@globalent.com",
-    phone: "+1-555-0009",
-    username: "lisadavis",
-    role: UserRole.COMPANY_ADMIN,
-    companyId: "3",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-09T00:00:00Z",
-  },
-];
+/* ------------------------------------------------------------------ */
+/* Dealer Search Component                                            */
+/* ------------------------------------------------------------------ */
+const DealerSearch = ({
+  dealers,
+  onSelect,
+  value,
+}: {
+  dealers: Dealer[];
+  onSelect: (dealerId: string) => void;
+  value?: string;
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
-/** ------------------------------------------------------------------
- * 3. COMPONENT
- * ------------------------------------------------------------------*/
+  const filteredDealers = useMemo(() => {
+    if (searchTerm.length < 2) return [];
+    
+    const term = searchTerm.toLowerCase();
+    return dealers.filter((dealer) => {
+      return (
+        dealer.name.toLowerCase().includes(term) ||
+        (dealer.contactEmail && dealer.contactEmail.toLowerCase().includes(term)) ||
+        (dealer.contactPhone && dealer.contactPhone.toLowerCase().includes(term)) ||
+        (dealer.gstNumber && dealer.gstNumber.toLowerCase().includes(term))
+      );
+    });
+  }, [searchTerm, dealers]);
+
+  const handleSelect = (dealerId: string) => {
+    onSelect(dealerId);
+    setSearchTerm(dealers.find(d => d.id === dealerId)?.name || "");
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIndex(prev => 
+        prev < filteredDealers.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIndex(prev => (prev > 0 ? prev - 1 : 0));
+    } else if (e.key === "Enter" && focusedIndex >= 0) {
+      e.preventDefault();
+      handleSelect(filteredDealers[focusedIndex].id);
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        placeholder="Search dealers by name, email, phone or GST..."
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setFocusedIndex(-1);
+          if (e.target.value.length >= 2) {
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+          }
+        }}
+        onFocus={() => searchTerm.length >= 2 && setIsOpen(true)}
+        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+        onKeyDown={handleKeyDown}
+      />
+      
+      {isOpen && (
+        <div className="w-[450px]">
+          {filteredDealers.length > 0 ? (
+            <ul>
+              {filteredDealers.map((dealer, index) => (
+                <li
+                  key={dealer.id}
+                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
+                    index === focusedIndex ? "bg-gray-100" : ""
+                  }`}
+                  onMouseDown={() => handleSelect(dealer.id)}
+                  onMouseEnter={() => setFocusedIndex(index)}
+                >
+                  <div className="font-medium">{dealer.name}</div>
+                  <div className="text-sm text-gray-500">
+                    {dealer.contactEmail} | {dealer.contactPhone}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="px-4 py-2 text-gray-500">
+              {searchTerm.length >= 2 ? "No dealers found" : "Type at least 2 characters to search"}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* UsersPage                                                          */
+/* ------------------------------------------------------------------ */
 const UsersPage = () => {
   const { user } = useAuth();
+  const token = user?.token;
 
-  /* -------------------------------------------------------------
-   * STATE
-   * -----------------------------------------------------------*/
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  /* ----------------------------- STATE ---------------------------- */
+  const [users, setUsers] = useState<User[]>([]);
+  const [dealers, setDealers] = useState<Dealer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [newUser, setNewUser] = useState<{
+  const [isLoading, setIsLoading] = useState(false);
+
+  type NewUserState = {
     name: string;
     email: string;
     phone: string;
@@ -258,21 +302,75 @@ const UsersPage = () => {
     role: UserRole;
     companyId?: string;
     dealerId?: string;
-  }>({
+  };
+
+  const [newUser, setNewUser] = useState<NewUserState>({
     name: "",
     email: "",
     phone: "",
     department: "",
     password: "",
     confirmPassword: "",
-    role: user?.role === UserRole.DEALER_ADMIN
-      ? UserRole.DEALER_EMPLOYEE
-      : UserRole.COMPANY_EMPLOYEE,
+    role:
+      user?.role === UserRole.DEALER_ADMIN
+        ? UserRole.DEALER_EMPLOYEE
+        : UserRole.COMPANY_EMPLOYEE,
   });
 
-  /* -------------------------------------------------------------
-   * HELPERS
-   * -----------------------------------------------------------*/
+  /* ---------------------------- LOAD DATA ------------------------ */
+  const loadUsers = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/register/employee/`, {
+        headers: makeAuthHeaders(token),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setUsers(json.map(normaliseEmployee));
+      } else {
+        throw new Error("Failed to fetch employees");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load employees",
+        variant: "destructive",
+      });
+      console.error("Error loading employees:", error);
+    }
+  }, [token]);
+
+  const loadDealers = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/dealers/`, {
+        headers: makeAuthHeaders(token),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setDealers((json as any[]).map(normaliseDealer));
+      } else {
+        throw new Error("Failed to fetch dealers");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load dealers",
+        variant: "destructive",
+      });
+      console.error("Error loading dealers:", error);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadUsers();
+    loadDealers();
+  }, [loadUsers, loadDealers]);
+
+  /* --------------------------- HELPERS --------------------------- */
+  const dealerMap = useMemo(
+    () => Object.fromEntries(dealers.map((d) => [d.id, d])),
+    [dealers]
+  );
+
   const toggleExpansion = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -281,84 +379,181 @@ const UsersPage = () => {
     user?.role === UserRole.COMPANY_ADMIN ||
     user?.role === UserRole.DEALER_ADMIN;
 
-  // Logged‑in role dictates which roles can be created
-  const availableRoleOptions = useMemo(() => {
-    if (user?.role === UserRole.DEALER_ADMIN) return [UserRole.DEALER_EMPLOYEE];
-    if (user?.role === UserRole.COMPANY_ADMIN) return [UserRole.COMPANY_EMPLOYEE];
-    return roleOptions.map((r) => r.value);
-  }, [user?.role]);
+  const companyDealers = useMemo(() => {
+  // agar user company admin hai aur uska companyId mila
+  if (user?.role === UserRole.COMPANY_ADMIN && user.companyId) {
+    // filter karo dealers list me se sirf wahi jo usi company ke hain
+    return dealers.filter((d) => d.companyId === user.companyId);
+  }
+  // warna sabhi dealers return karo
+  return dealers;
+}, [dealers, user?.role, user?.companyId]);
 
-  /* -------------------------------------------------------------
-   * FILTER & MEMO
-   * -----------------------------------------------------------*/
+  /* ------------------------- SEARCH ------------------------------ */
   const filteredUsers = useMemo(() => {
+    if (!searchTerm.trim()) return users;
+
     const term = searchTerm.toLowerCase();
     const match = (s?: string) => s?.toLowerCase().includes(term);
-    return users.filter((u) => [u.name, u.email, u.username].some(match));
-  }, [users, searchTerm]);
+
+    // First find all dealers that match the search criteria
+    const matchedDealers = dealers.filter((dealer) => {
+      return (
+        match(dealer.name) ||
+        match(dealer.contactPerson) ||
+        match(dealer.contactEmail) ||
+        match(dealer.contactPhone) ||
+        match(dealer.gstNumber)
+      );
+    });
+
+    // Get all user IDs from matched dealers (admin + employees)
+    const matchedDealerUserIds = new Set<string>();
+    matchedDealers.forEach((dealer) => {
+      users.forEach((user) => {
+        if (user.dealerId === dealer.id) {
+          matchedDealerUserIds.add(user.id);
+        }
+      });
+    });
+
+    // Now filter users based on either:
+    // 1. Direct user field match
+    // 2. Belonging to a matched dealer
+    return users.filter((user) => {
+      // Check if user matches directly
+      const userMatch = [user.name, user.email, user.username].some(match);
+      
+      // Check if user belongs to a matched dealer
+      const dealerMatch = matchedDealerUserIds.has(user.id);
+      
+      return userMatch || dealerMatch;
+    });
+  }, [users, dealers, searchTerm]);
 
   const systemUsers = useMemo(
     () => filteredUsers.filter((u) => !u.companyId),
     [filteredUsers]
   );
 
-  /* -------------------------------------------------------------
-   * HANDLERS
-   * -----------------------------------------------------------*/
-  const handleAddUser = () => {
-  if (
-    !newUser.name ||
-    !newUser.email ||
-    !newUser.role ||
-    newUser.password !== newUser.confirmPassword
-  ) {
-    alert("Please fill all required fields and ensure passwords match.");
-    return;
-  }
+  /* --------------------- CREATE / DELETE ------------------------- */
+  const handleAddUser = async () => {
+    if (
+      !newUser.name ||
+      !newUser.email ||
+      !newUser.role ||
+      !newUser.password
+    ) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const newUserData: User = {
-    id: Date.now().toString(),
-    name: newUser.name,
-    email: newUser.email,
-    phone: newUser.phone || "",
-    username: newUser.email.split("@")[0],
-    role: newUser.role,
-    department: newUser.department || "",
-    status: UserStatus.ACTIVE,
-    password: newUser.password,
-    createdAt: new Date().toISOString(),
-    companyId:
-      user?.role === UserRole.COMPANY_ADMIN
-        ? user.companyId
-        : newUser.companyId || undefined,
-    dealerId:
-      newUser.role === UserRole.DEALER_EMPLOYEE
-        ? newUser.dealerId || "1" // optional static dealer ID if needed
-        : undefined,
-  } as User;
+    if (newUser.password !== newUser.confirmPassword) {
+      toast({
+        title: "Validation Error",
+        description: "Passwords do not match",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  setUsers((u) => [...u, newUserData]);
-  setNewUser({
-    name: "",
-    email: "",
-    role: UserRole.COMPANY_EMPLOYEE,
-    phone: "",
-    department: "",
-    password: "",
-    confirmPassword: "",
-  });
-  setIsAddDialogOpen(false);
-};
+    setIsLoading(true);
 
+    try {
+      const payload = {
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        department: newUser.department,
+        role: newUser.role,
+        password: newUser.password,
+        company: newUser.companyId,
+        dealer: newUser.dealerId,
+      };
 
-  const handleDeleteUser = useCallback((id: string) => {
-    setUsers((u) => u.filter((x) => x.id !== id));
-  }, []);
+      const response = await fetch(`${API_BASE}/register/employee/`, {
+        method: "POST",
+        headers: makeAuthHeaders(token),
+        body: JSON.stringify(payload),
+      });
 
-  /* -------------------------------------------------------------
-   * ROW COMPONENT (recursive levels)
-   * -----------------------------------------------------------*/
-  const UserRow = ({ user: u, level = 0 }: { user: User; level?: number }) => (
+      if (response.ok) {
+        const createdEmployee = await response.json();
+        setUsers(prev => [...prev, normaliseEmployee(createdEmployee)]);
+        
+        toast({
+          title: "Success",
+          description: "Employee registered successfully",
+        });
+        
+        // Reset form
+        setNewUser({
+          name: "",
+          email: "",
+          phone: "",
+          department: "",
+          password: "",
+          confirmPassword: "",
+          role:
+            user?.role === UserRole.DEALER_ADMIN
+              ? UserRole.DEALER_EMPLOYEE
+              : UserRole.COMPANY_EMPLOYEE,
+        });
+        setIsAddDialogOpen(false);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to register employee");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to register employee",
+        variant: "destructive",
+      });
+      console.error("Error registering employee:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteUser = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/employee/${id}/`, {
+        method: "DELETE",
+        headers: makeAuthHeaders(token),
+      });
+
+      if (response.ok) {
+        setUsers(prev => prev.filter(user => user.id !== id));
+        toast({
+          title: "Success",
+          description: "Employee deleted successfully",
+        });
+      } else {
+        throw new Error("Failed to delete employee");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete employee",
+        variant: "destructive",
+      });
+      console.error("Error deleting employee:", error);
+    }
+  }, [token]);
+
+  /* -------------------------- ROW ------------------------------- */
+  const UserRow = ({
+    user: u,
+    level = 0,
+  }: {
+    user: User;
+    level?: number;
+  }) => (
     <TableRow>
       <TableCell
         className="font-medium"
@@ -371,7 +566,9 @@ const UsersPage = () => {
       </TableCell>
       <TableCell>{u.email}</TableCell>
       <TableCell>
-        <Badge className={getRoleBadgeColor(u.role)}>{getRoleName(u.role)}</Badge>
+        <Badge className={getRoleBadgeColor(u.role)}>
+          {getRoleName(u.role)}
+        </Badge>
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
@@ -392,16 +589,18 @@ const UsersPage = () => {
     </TableRow>
   );
 
-  /** ------------------------------------------------------------------
-   *  RENDER
-   * ------------------------------------------------------------------*/
+  /* ------------------------------------------------------------------
+   * RENDER
+   * ------------------------------------------------------------------ */
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* HEADER & ADD BUTTON */}
+        {/* HEADER + ADD BUTTON */}
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Users Management</h2>
+            <h2 className="text-3xl font-bold tracking-tight">
+              Users Management
+            </h2>
             <p className="text-muted-foreground">
               {user?.role === UserRole.APPLICATION_ADMIN
                 ? "Manage all users across companies in hierarchical structure"
@@ -410,167 +609,246 @@ const UsersPage = () => {
           </div>
 
           {canManageUsers && (
-           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-  <DialogTrigger asChild>
-    <Button>
-      <Plus className="mr-2 h-4 w-4" /> Add User
-    </Button>
-  </DialogTrigger>
-  <DialogContent className="sm:max-w-[500px] animate-fade-in bg-gradient-to-br from-white to-blue-50 border border-blue-200 rounded-xl shadow-lg">
-    <DialogHeader>
-      <DialogTitle className="text-blue-700">Add New User</DialogTitle>
-      <DialogDescription className="text-sm text-muted-foreground">
-        Fill in the employee details below.
-      </DialogDescription>
-    </DialogHeader>
-
-    <div className="grid gap-4 py-4">
-      {/* NAME */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="name" className="text-right">Name</Label>
-        <Input
-          id="name"
-          value={newUser.name || ""}
-          onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-          className="col-span-3"
-          placeholder="Full name"
-        />
-      </div>
-
-      {/* EMAIL */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="email" className="text-right">Email</Label>
-        <Input
-          id="email"
-          type="email"
-          value={newUser.email || ""}
-          onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-          className="col-span-3"
-          placeholder="user@example.com"
-        />
-      </div>
-
-      {/* PHONE */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="phone" className="text-right">Phone</Label>
-        <Input
-          id="phone"
-          type="tel"
-          value={newUser.phone || ""}
-          onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
-          className="col-span-3"
-          placeholder="+91-XXXXXXXXXX"
-        />
-      </div>
-
-      {/* DEPARTMENT */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="department" className="text-right">Department</Label>
-        <Input
-          id="department"
-          value={newUser.department || ""}
-          onChange={(e) =>
-            setNewUser({ ...newUser, department: e.target.value })
-          }
-          className="col-span-3"
-          placeholder="Optional"
-        />
-      </div>
-
-      {/* ROLE */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="role" className="text-right">Role</Label>
-        <Select
-          value={newUser.role}
-          onValueChange={(value) =>
-            setNewUser({ ...newUser, role: value as UserRole })
-          }
-        >
-          <SelectTrigger className="col-span-3">
-            <SelectValue placeholder="Select role" />
-          </SelectTrigger>
-          <SelectContent>
-            {roleOptions
-              .filter((o) => {
-                if (user?.role === UserRole.DEALER_ADMIN)
-                  return o.value === UserRole.DEALER_EMPLOYEE;
-                if (user?.role === UserRole.COMPANY_ADMIN)
-                  return (
-                    o.value === UserRole.COMPANY_EMPLOYEE ||
-                    o.value === UserRole.DEALER_EMPLOYEE
-                  );
-                return true;
-              })
-              .map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* COMPANY - only show if role is Dealer Employee and logged-in user is Company Admin */}
-      {user?.role === UserRole.COMPANY_ADMIN &&
-        newUser.role === UserRole.DEALER_EMPLOYEE && (
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="company" className="text-right">Company</Label>
-            <Select
-              onValueChange={(value) =>
-                setNewUser({ ...newUser, companyId: value })
-              }
+            <Dialog
+              open={isAddDialogOpen}
+              onOpenChange={setIsAddDialogOpen}
             >
-              <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select company" />
-              </SelectTrigger>
-              <SelectContent>
-                {mockCompanies.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" /> Add User
+                </Button>
+              </DialogTrigger>
 
-      {/* PASSWORD */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="password" className="text-right">Password</Label>
-        <Input
-          id="password"
-          type="password"
-          value={newUser.password || ""}
-          onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-          className="col-span-3"
-          placeholder="New password"
-        />
-      </div>
+              {/* -------------- ADD USER DIALOG -------------- */}
+              <DialogContent className="sm:max-w-[500px] bg-gradient-to-br from-white to-blue-50 border rounded-xl shadow-lg">
+                <DialogHeader>
+                  <DialogTitle className="text-blue-700">
+                    Add New User
+                  </DialogTitle>
+                  <DialogDescription>
+                    Fill in the employee details below.
+                  </DialogDescription>
+                </DialogHeader>
 
-      {/* CONFIRM PASSWORD */}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="confirmPassword" className="text-right">Confirm</Label>
-        <Input
-          id="confirmPassword"
-          type="password"
-          value={newUser.confirmPassword || ""}
-          onChange={(e) =>
-            setNewUser({ ...newUser, confirmPassword: e.target.value })
-          }
-          className="col-span-3"
-          placeholder="Confirm password"
-        />
-      </div>
-    </div>
+                {/* ---------- FORM FIELDS ---------- */}
+                <div className="grid gap-4 py-4">
+                  {/* NAME */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">
+                      Name
+                    </Label>
+                    <Input
+                      id="name"
+                      value={newUser.name}
+                      onChange={(e) =>
+                        setNewUser({ ...newUser, name: e.target.value })
+                      }
+                      className="col-span-3"
+                      placeholder="Full name"
+                      required
+                    />
+                  </div>
 
-    <DialogFooter>
-      <Button onClick={handleAddUser} className="bg-blue-600 text-white hover:bg-blue-700">
-        Add User
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+                  {/* EMAIL */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="email" className="text-right">
+                      Email
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={newUser.email}
+                      onChange={(e) =>
+                        setNewUser({ ...newUser, email: e.target.value })
+                      }
+                      className="col-span-3"
+                      placeholder="user@example.com"
+                      required
+                    />
+                  </div>
 
+                  {/* PHONE */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="phone" className="text-right">
+                      Phone
+                    </Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={newUser.phone}
+                      onChange={(e) =>
+                        setNewUser({ ...newUser, phone: e.target.value })
+                      }
+                      className="col-span-3"
+                      placeholder="+91-XXXXXXXXXX"
+                    />
+                  </div>
+
+                  {/* DEPARTMENT */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="department" className="text-right">
+                      Department
+                    </Label>
+                    <Input
+                      id="department"
+                      value={newUser.department}
+                      onChange={(e) =>
+                        setNewUser({
+                          ...newUser,
+                          department: e.target.value,
+                        })
+                      }
+                      className="col-span-3"
+                      placeholder="Optional"
+                    />
+                  </div>
+
+                  {/* ROLE */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="role" className="text-right">
+                      Role
+                    </Label>
+                    <Select
+                      value={newUser.role}
+                      onValueChange={(value) =>
+                        setNewUser({
+                          ...newUser,
+                          role: value as UserRole,
+                          // reset company/dealer id if role changes
+                          companyId:
+                            value === UserRole.COMPANY_EMPLOYEE ||
+                            value === UserRole.COMPANY_ADMIN
+                              ? newUser.companyId
+                              : undefined,
+                          dealerId:
+                            value === UserRole.DEALER_EMPLOYEE ||
+                            value === UserRole.DEALER_ADMIN
+                              ? newUser.dealerId
+                              : undefined,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roleOptions
+                          .filter((o) => {
+                            if (user?.role === UserRole.DEALER_ADMIN)
+                              return o.value === UserRole.DEALER_EMPLOYEE;
+                            if (user?.role === UserRole.COMPANY_ADMIN)
+                              return (
+                                o.value === UserRole.COMPANY_EMPLOYEE ||
+                                o.value === UserRole.DEALER_EMPLOYEE
+                              );
+                            return true;
+                          })
+                          .map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* COMPANY (System Admin creating company users) */}
+                  {user?.role === UserRole.APPLICATION_ADMIN &&
+                    (newUser.role === UserRole.COMPANY_ADMIN ||
+                      newUser.role === UserRole.COMPANY_EMPLOYEE) && (
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="company" className="text-right">
+                          Company
+                        </Label>
+                        <Select
+                          value={newUser.companyId}
+                          onValueChange={(value) =>
+                            setNewUser({ ...newUser, companyId: value })
+                          }
+                        >
+                          <SelectTrigger className="col-span-3">
+                            <SelectValue placeholder="Select company" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {mockCompanies.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                  {/* DEALER (Company Admin creating Dealer employees) */}
+                  {(user?.role === UserRole.COMPANY_ADMIN || user?.role === UserRole.APPLICATION_ADMIN) &&
+                    (newUser.role === UserRole.DEALER_EMPLOYEE || newUser.role === UserRole.DEALER_ADMIN) && (
+                     <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="dealer" className="text-right">
+                          Dealer
+                        </Label>
+                        <div className="col-span-3">
+                          <DealerSearch
+                            dealers={companyDealers}
+                            onSelect={(dealerId) => setNewUser({ ...newUser, dealerId })}
+                            value={newUser.dealerId}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                  {/* PASSWORD */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="password" className="text-right">
+                      Password
+                    </Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={newUser.password}
+                      onChange={(e) =>
+                        setNewUser({ ...newUser, password: e.target.value })
+                      }
+                      className="col-span-3"
+                      placeholder="New password"
+                      required
+                    />
+                  </div>
+
+                  {/* CONFIRM PASSWORD */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="confirmPassword" className="text-right">
+                      Confirm
+                    </Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={newUser.confirmPassword}
+                      onChange={(e) =>
+                        setNewUser({
+                          ...newUser,
+                          confirmPassword: e.target.value,
+                        })
+                      }
+                      className="col-span-3"
+                      placeholder="Confirm password"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    onClick={handleAddUser}
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Registering..." : "Register Employee"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+              {/* -------------- /ADD USER DIALOG -------------- */}
+            </Dialog>
           )}
         </div>
 
@@ -578,46 +856,48 @@ const UsersPage = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" /> Search Users
+              <Search className="h-5 w-5" /> Search Users / Dealers
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Input
-              placeholder="Search by name, username or email..."
+              placeholder="Search by user name, email, or dealer details (name, contact, email, phone, GST)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="max-w-sm"
+              className="max-w-lg"
             />
           </CardContent>
         </Card>
 
         {/* SYSTEM USERS */}
-        {user?.role === UserRole.APPLICATION_ADMIN && systemUsers.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserCircle className="h-5 w-5" /> System Users ({systemUsers.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {systemUsers.map((u) => (
-                    <UserRow key={u.id} user={u} />
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
+        {user?.role === UserRole.APPLICATION_ADMIN &&
+          systemUsers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserCircle className="h-5 w-5" /> System Users (
+                  {systemUsers.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {systemUsers.map((u) => (
+                      <UserRow key={u.id} user={u} />
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
 
         {/* COMPANY HIERARCHY */}
         {user?.role === UserRole.APPLICATION_ADMIN && (
@@ -640,23 +920,32 @@ const UsersPage = () => {
                 <TableBody>
                   {mockCompanies.map((company) => {
                     const companyAdmins = filteredUsers.filter(
-                      (u) => u.companyId === company.id && u.role === UserRole.COMPANY_ADMIN
+                      (u) =>
+                        u.companyId === company.id &&
+                        u.role === UserRole.COMPANY_ADMIN
                     );
                     const companyEmployees = filteredUsers.filter(
-                      (u) => u.companyId === company.id && u.role === UserRole.COMPANY_EMPLOYEE
+                      (u) =>
+                        u.companyId === company.id &&
+                        u.role === UserRole.COMPANY_EMPLOYEE
                     );
                     const dealerAdmins = filteredUsers.filter(
-                      (u) => u.companyId === company.id && u.role === UserRole.DEALER_ADMIN
+                      (u) =>
+                        u.companyId === company.id &&
+                        u.role === UserRole.DEALER_ADMIN
                     );
 
                     const totalUsers =
-                      companyAdmins.length + companyEmployees.length + dealerAdmins.length;
+                      companyAdmins.length +
+                      companyEmployees.length +
+                      dealerAdmins.length;
+
                     const compKey = `company-${company.id}`;
                     if (totalUsers === 0) return null;
 
                     return (
-                      <>
-                        <TableRow key={compKey} className="bg-muted/30">
+                      <div key={compKey}>
+                        <TableRow className="bg-muted/30">
                           <TableCell
                             className="font-semibold cursor-pointer"
                             onClick={() => toggleExpansion(compKey)}
@@ -667,7 +956,8 @@ const UsersPage = () => {
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <Building2 className="h-4 w-4" /> {company.name} ({totalUsers} users)
+                              <Building2 className="h-4 w-4" /> {company.name} (
+                              {totalUsers} users)
                             </div>
                           </TableCell>
                           <TableCell colSpan={3} className="text-muted-foreground">
@@ -677,12 +967,10 @@ const UsersPage = () => {
 
                         {expanded[compKey] && (
                           <>
-                            {/* Company Admins */}
                             {companyAdmins.map((u) => (
                               <UserRow key={u.id} user={u} level={1} />
                             ))}
 
-                            {/* Company Employees */}
                             {companyEmployees.map((u) => (
                               <UserRow key={u.id} user={u} level={2} />
                             ))}
@@ -697,13 +985,14 @@ const UsersPage = () => {
                               );
 
                               return (
-                                <>
-                                  <TableRow key={dealerAdmin.id}>
+                                <div key={dealerAdmin.id}>
+                                  <TableRow>
                                     <TableCell
                                       className="font-medium cursor-pointer"
                                       style={{ paddingLeft: "40px" }}
                                       onClick={() =>
-                                        dealerAdmin.dealerId && toggleExpansion(dealerKey)
+                                        dealerAdmin.dealerId &&
+                                        toggleExpansion(dealerKey)
                                       }
                                     >
                                       <div className="flex items-center gap-2">
@@ -716,13 +1005,20 @@ const UsersPage = () => {
                                         <UserCircle className="h-4 w-4 text-muted-foreground" />
                                         {dealerAdmin.name}
                                         {dealerEmployees.length > 0 && (
-                                          <> ({dealerEmployees.length} employees)</>
+                                          <>
+                                            {" "}
+                                            ({dealerEmployees.length} employees)
+                                          </>
                                         )}
                                       </div>
                                     </TableCell>
                                     <TableCell>{dealerAdmin.email}</TableCell>
                                     <TableCell>
-                                      <Badge className={getRoleBadgeColor(dealerAdmin.role)}>
+                                      <Badge
+                                        className={getRoleBadgeColor(
+                                          dealerAdmin.role
+                                        )}
+                                      >
                                         {getRoleName(dealerAdmin.role)}
                                       </Badge>
                                     </TableCell>
@@ -734,7 +1030,9 @@ const UsersPage = () => {
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          onClick={() => handleDeleteUser(dealerAdmin.id)}
+                                          onClick={() =>
+                                            handleDeleteUser(dealerAdmin.id)
+                                          }
                                         >
                                           <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -745,14 +1043,18 @@ const UsersPage = () => {
                                   {/* Dealer employees */}
                                   {expanded[dealerKey] &&
                                     dealerEmployees.map((emp) => (
-                                      <UserRow key={emp.id} user={emp} level={3} />
+                                      <UserRow
+                                        key={emp.id}
+                                        user={emp}
+                                        level={3}
+                                      />
                                     ))}
-                                </>
+                                </div>
                               );
                             })}
                           </>
                         )}
-                      </>
+                      </div>
                     );
                   })}
                 </TableBody>

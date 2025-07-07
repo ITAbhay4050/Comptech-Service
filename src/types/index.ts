@@ -27,6 +27,7 @@ export interface User {
   /* optional / nice‑to‑have fields */
   phone?: string;
   username?: string;
+  department?: string;          // 👈  added to fix VS‑Code error
   status?: UserStatus;
   companyId?: string;
   dealerId?: string;
@@ -74,8 +75,9 @@ export interface Dealer {
 
   /* tax */
   gstNumber?: string;
+  panNumber?: string;           // optional but handy
 
-  companyId: string;          // FK → Company
+  companyId: string;            // FK → Company
   status?: UserStatus;
   createdAt?: string;
 }
@@ -85,7 +87,7 @@ export interface Dealer {
  * ------------------------------------------------------------------ */
 export interface MachinePhoto {
   id: number;
-  photo: string;              // relative URL from backend
+  photo: string;                // relative URL from backend
 }
 
 /**

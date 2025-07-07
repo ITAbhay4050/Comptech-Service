@@ -54,38 +54,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   /* ---------- login ---------- */
   const login = async (email: string, password: string) => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/login/`, {
+  setIsLoading(true);
+  try {
+    // Try employee login first
+    let res = await fetch(`${API_BASE}/employee-login/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    let data;
+    if (res.ok) {
+      data = await res.json();
+    } else {
+      // If employee login fails with 404 or 401, try dealer/company login
+      res = await fetch(`${API_BASE}/login/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
       if (!res.ok) throw new Error("Invalid credentials");
-      const data = await res.json();
-
-      // API shape: { token, user_type, dealer_id?, company_id?, name, role }
-      const loggedInUser: AuthUser = {
-        id: String(data.dealer_id ?? data.company_id),
-        name: data.name,
-        email,
-        role: data.role as UserRole,
-        companyId: data.company_id ? String(data.company_id) : undefined,
-        dealerId: data.dealer_id ? String(data.dealer_id) : undefined,
-        token: data.token,
-      };
-
-      localStorage.setItem("user", JSON.stringify(loggedInUser));
-      setUser(loggedInUser);
-      return true;
-    } catch (err) {
-      console.error("Login failed:", err);
-      return false;
-    } finally {
-      setIsLoading(false);
+      data = await res.json();
     }
-  };
+
+    // Identify role and ID properly
+    const loggedInUser: AuthUser = {
+      id: String(data.employee_id ?? data.dealer_id ?? data.company_id),
+      name: data.name,
+      email,
+      role: data.role as UserRole,
+      token: data.token,
+      companyId: data.company_id ? String(data.company_id) : undefined,
+      dealerId: data.dealer_id ? String(data.dealer_id) : undefined,
+    };
+
+    localStorage.setItem("user", JSON.stringify(loggedInUser));
+    setUser(loggedInUser);
+    return true;
+  } catch (err) {
+    console.error("Login failed:", err);
+    return false;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   /* ---------- logout ---------- */
   const logout = () => {

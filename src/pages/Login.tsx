@@ -18,24 +18,30 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { Cog as Gear, Wrench, Cpu, ShieldCheck } from "lucide-react";
 
-/* ------------------------------------------------------------------ */
-/* Login page – uses AuthContext.login                                 */
-/* ------------------------------------------------------------------ */
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeGear, setActiveGear] = useState(0);
 
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  /* ---------- rotating gear animation ---------- */
+  /* ---------- rotating gear animation (500 RPM = 8.33 RPS) ---------- */
   useEffect(() => {
-    const interval = setInterval(() =>
-      setActiveGear((prev) => (prev + 1) % 3),
-    3_000);
-    return () => clearInterval(interval);
+    const gears = document.querySelectorAll('.gear-animation');
+    let animationFrame: number;
+    
+    const animateGears = (timestamp: number) => {
+      const rotation = (timestamp / 120) % 360; // 500 RPM calculation
+      gears.forEach((gear, index) => {
+        const direction = index % 2 === 0 ? 1 : -1;
+        (gear as HTMLElement).style.transform = `rotate(${rotation * direction}deg)`;
+      });
+      animationFrame = requestAnimationFrame(animateGears);
+    };
+    
+    animationFrame = requestAnimationFrame(animateGears);
+    return () => cancelAnimationFrame(animationFrame);
   }, []);
 
   const showToast = (
@@ -44,7 +50,6 @@ const Login = () => {
     variant: "destructive" | "default" = "default",
   ) => toast({ title, description, variant });
 
-  /* ---------- form submit ---------- */
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -64,7 +69,6 @@ const Login = () => {
     }
   };
 
-  /* ---------- demo autofill ---------- */
   const fillCredentials = (preset: string) => {
     switch (preset) {
       case "admin":
@@ -90,65 +94,55 @@ const Login = () => {
     }
   };
 
-  /* ------------------------------------------------------------------ */
-  /* JSX                                                                */
-  /* ------------------------------------------------------------------ */
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-900 relative overflow-hidden">
-      {/* background pattern */}
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-geometric.png')] opacity-10" />
-
-      {/* animated gears */}
-      <div className="absolute -left-20 -top-20 w-64 h-64">
-        <Gear
-          className={`w-full h-full text-blue-500/20 transition-all duration-1000 ${
-            activeGear === 0 ? "animate-spin" : ""
-          }`}
-        />
-      </div>
-      <div className="absolute -right-20 -bottom-20 w-72 h-72">
-        <Gear
-          className={`w-full h-full text-orange-500/20 transition-all duration-1000 ${
-            activeGear === 1 ? "animate-spin-reverse" : ""
-          }`}
-        />
-      </div>
-      <div className="absolute right-1/4 top-1/3 w-48 h-48">
-        <Gear
-          className={`w-full h-full text-green-500/20 transition-all duration-1000 ${
-            activeGear === 2 ? "animate-spin" : ""
-          }`}
-        />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden">
+      {/* Background gears */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -left-40 -top-40 w-80 h-80">
+          <Gear className="w-full h-full text-blue-500/10 gear-animation origin-center" />
+        </div>
+        <div className="absolute -right-40 -bottom-40 w-96 h-96">
+          <Gear className="w-full h-full text-blue-700/10 gear-animation origin-center" />
+        </div>
+        <div className="absolute right-1/4 top-1/3 w-64 h-64">
+          <Gear className="w-full h-full text-blue-600/10 gear-animation origin-center" />
+        </div>
       </div>
 
-      {/* blueprint overlay */}
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/graphy-dark.png')] opacity-5" />
-
-      {/* main card */}
+      {/* Main card */}
       <div className="w-full max-w-md px-4 relative z-10">
-        <Card className="shadow-2xl backdrop-blur-sm bg-gray-800/80 border-gray-700 hover:shadow-blue-500/20 hover:border-blue-500/30 transition-all duration-300">
-          <CardHeader className="space-y-4 text-center">
-            <div className="mx-auto w-20 h-20 bg-gradient-to-br from-blue-600 to-cyan-400 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <div className="relative">
-                <Cpu className="w-10 h-10 text-white" />
-                <Wrench className="absolute -bottom-1 -right-1 w-5 h-5 text-orange-400" />
+        <Card className="shadow-xl bg-white/90 backdrop-blur-sm border border-gray-200">
+          <CardHeader className="space-y-6 text-center">
+            {/* Logo section */}
+            <div className="flex flex-col items-center">
+              <div className="w-24 h-24 mb-4 flex items-center justify-center">
+                <div className="relative w-full h-full">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-blue-800 rounded-full flex items-center justify-center shadow-lg">
+                    <Cpu className="w-10 h-10 text-white" />
+                  </div>
+                  <Wrench className="absolute -bottom-2 -right-2 w-6 h-6 text-orange-400" />
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <h1 className="text-3xl font-bold text-blue-800">COMPTECH</h1>
+                <p className="text-blue-600 mt-1 text-sm">Shaping a better future</p>
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold text-white">
-              <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                COMPTECH GEAR UP
-              </span>
+            
+            <CardTitle className="text-xl font-semibold text-gray-800">
+              Machine Service Portal
             </CardTitle>
-            <CardDescription className="text-gray-400">
-              Machine Installation & Service Management System
+            <CardDescription className="text-gray-500">
+              Sign in to access your account
             </CardDescription>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* email */}
+              {/* Email */}
               <div className="space-y-3">
-                <Label htmlFor="email" className="text-gray-300 flex items-center gap-2">
+                <Label htmlFor="email" className="text-gray-700 flex items-center gap-2">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -159,7 +153,7 @@ const Login = () => {
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="text-blue-400"
+                    className="text-blue-600"
                   >
                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                     <polyline points="22,6 12,13 2,6"></polyline>
@@ -169,17 +163,17 @@ const Login = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="technician@comptech.com"
+                  placeholder="user@comptech.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+                  className="bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
-              {/* password */}
+              {/* Password */}
               <div className="space-y-3">
-                <Label htmlFor="password" className="text-gray-300 flex items-center gap-2">
+                <Label htmlFor="password" className="text-gray-700 flex items-center gap-2">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -190,7 +184,7 @@ const Login = () => {
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="text-blue-400"
+                    className="text-blue-600"
                   >
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
@@ -204,14 +198,14 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+                  className="bg-white border-gray-300 text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
-              {/* submit */}
+              {/* Submit */}
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-medium py-2 px-4 rounded-md transition-all duration-300 shadow-lg hover:shadow-blue-500/30 group"
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-2 px-4 rounded-md transition-all duration-300 shadow hover:shadow-md"
                 disabled={isSubmitting}
               >
                 <div className="flex items-center justify-center gap-2">
@@ -241,7 +235,7 @@ const Login = () => {
                     </>
                   ) : (
                     <>
-                      <ShieldCheck className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      <ShieldCheck className="w-5 h-5" />
                       Sign In
                     </>
                   )}
@@ -251,20 +245,20 @@ const Login = () => {
 
             {/* Links */}
             <div className="mt-6 text-center text-sm">
-              <p className="mb-2 text-gray-400">
+              <p className="mb-2 text-gray-600">
                 Don't have an account?{' '}
                 <Link
                   to="/dealerregister"
-                  className="text-cyan-400 hover:text-cyan-300 underline underline-offset-4 transition-colors"
+                  className="text-blue-600 hover:text-blue-800 underline underline-offset-4 transition-colors"
                 >
                   Register
                 </Link>
               </p>
-              <p className="text-gray-400">
+              <p className="text-gray-600">
                 Create Company?{' '}
                 <Link
                   to="/register"
-                  className="text-cyan-400 hover:text-cyan-300 underline underline-offset-4 transition-colors"
+                  className="text-blue-600 hover:text-blue-800 underline underline-offset-4 transition-colors"
                 >
                   Create Company
                 </Link>
@@ -272,25 +266,25 @@ const Login = () => {
             </div>
 
             {/* Demo buttons */}
-            <div className="border-t border-gray-700 pt-5 mt-6">
-              <p className="text-center text-sm text-gray-400 mb-3">
+            <div className="border-t border-gray-200 pt-5 mt-6">
+              <p className="text-center text-sm text-gray-600 mb-3">
                 Demo Accounts (click to autofill):
               </p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {[
-                  ["System Admin", "admin", "blue"],
-                  ["Company Admin", "company_admin", "cyan"],
-                  ["Company Employee", "company_employee", "green"],
-                  ["Dealer Admin", "dealer_admin", "orange"],
-                  ["Dealer Employee", "dealer_employee", "purple"],
-                ].map(([label, key, color]) => (
+                  ["System Admin", "admin", "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200"],
+                  ["Company Admin", "company_admin", "bg-cyan-100 text-cyan-800 border-cyan-200 hover:bg-cyan-200"],
+                  ["Company Employee", "company_employee", "bg-green-100 text-green-800 border-green-200 hover:bg-green-200"],
+                  ["Dealer Admin", "dealer_admin", "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200"],
+                  ["Dealer Employee", "dealer_employee", "bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200"],
+                ].map(([label, key, className]) => (
                   <Button
                     key={key}
                     variant="outline"
                     size="sm"
                     type="button"
                     onClick={() => fillCredentials(key as string)}
-                    className={`border-${color}-500 text-${color}-400 hover:bg-${color}-900/50 hover:border-${color}-400 hover:text-${color}-300`}
+                    className={className}
                   >
                     {label}
                   </Button>

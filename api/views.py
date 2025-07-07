@@ -6,6 +6,7 @@ task and machine installation support with DRF TokenAuthentication.
 """
 from rest_framework.generics import ListAPIView
 from rest_framework import serializers  
+from .serializers import EmployeeSerializer
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User as AuthUser
 from django.core.cache import cache
@@ -20,7 +21,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
-from .models import MachineInstallation, InstallationPhoto
+from .models import MachineInstallation, InstallationPhoto,Employee
 
 from .models import Company, Dealer, LoginRecord, Task
 from .serializers import (
@@ -90,18 +91,18 @@ class DealerListView(ListCreateAPIView):
     def get_permissions(self):
         return [AllowAny()] if self.request.method.lower() == "post" else [IsAuthenticated()]
 
-def perform_create(self, serializer):
-    email = serializer.validated_data["email"]
-    is_direct = self.request.data.get("isDirect", False)
+    def perform_create(self, serializer):
+        email = serializer.validated_data["email"]
+        is_direct = self.request.data.get("isDirect", False)
 
-    if not is_direct:
-        if not cache.get(f"verified_otp_{email}"):
-            raise ValueError("Please verify OTP before registration.")
+        if not is_direct:
+            if not cache.get(f"verified_otp_{email}"):
+                raise ValueError("Please verify OTP before registration.")
 
-    serializer.save(password=make_password(serializer.validated_data["password"]))
+        serializer.save(password=make_password(serializer.validated_data["password"]))
 
-    if not is_direct:
-        cache.delete(f"verified_otp_{email}")
+        if not is_direct:
+            cache.delete(f"verified_otp_{email}")
 
     def create(self, request, *args, **kwargs):
         try:
@@ -110,6 +111,7 @@ def perform_create(self, serializer):
             return response
         except ValueError as exc:
             return Response({"message": str(exc)}, status=400)
+
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +168,6 @@ class SendOTPView(APIView):
         send_otp_email(email, otp)
         cache.set(f"otp_{email}", otp, timeout=300)
         return Response({"message": f"OTP sent to {email}."})
-
 
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]
@@ -290,3 +291,71 @@ class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
+class RegisterEmployee(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(EmployeeSerializer(Employee.objects.all(), many=True).data)
+
+    def post(self, request):
+        email = request.data.get("email")
+        if Employee.objects.filter(email=email).exists():
+            return Response({"message": "Employee with this email already exists."}, status=400)
+
+        # (optional) OTP check
+        if not cache.get(f"verified_otp_{email}", True):
+            return Response({"message": "Please verify OTP before registration."}, status=400)
+
+        serializer = EmployeeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        serializer.validated_data["password"] = make_password(serializer.validated_data["password"])
+        employee = serializer.save()
+
+        cache.delete(f"verified_otp_{email}", None)
+        return Response({
+            "message": "Employee registered successfully.",
+            **EmployeeSerializer(employee).data,
+        }, status=201)
+
+
+class EmployeeDetailView(RetrieveUpdateDestroyAPIView):
+    queryset = Employee.objects.all()
+    serializer_class = EmployeeSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class EmployeeLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        # Step 1: Check if employee with this email exists
+        employee = Employee.objects.filter(email=email).first()
+
+        # Step 2: If employee exists and password matches
+        if employee and check_password(password, employee.password):
+            token, _ = Token.objects.get_or_create(user=get_or_create_auth_user(email))
+            LoginRecord.objects.create(email=email, user_type="employee", success=True)
+
+            return Response({
+                "message": "Login successful",
+                "token": token.key,
+                "user_type": "employee",
+                "employee_id": employee.id,
+                "name": employee.name,
+                "role": employee.role,
+                "company_id": employee.company_id,
+                "dealer_id": employee.dealer_id,
+            }, status=200)
+
+        # Step 3: If employee exists but password is wrong
+        if employee:
+            LoginRecord.objects.create(email=email, user_type="employee", success=False)
+            return Response({"message": "Invalid password"}, status=401)
+
+        # Step 4: Email not found
+        return Response({"message": "User not found"}, status=404)

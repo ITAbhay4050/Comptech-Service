@@ -19,7 +19,7 @@ class Company(models.Model):
     ])
     email = models.EmailField(unique=True)
     pan_no = models.CharField(max_length=20)
-    password = models.CharField(max_length=128)
+    password = models.CharField(max_length=128) 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -68,9 +68,8 @@ class Dealer(models.Model):
         except (ValueError, TypeError):
             self.password = make_password(self.password)
         super().save(*args, **kwargs)
-
     def __str__(self):
-        return f"{self.name} ({self.company.name})"
+        return f"{self.name} ({self.company.name if self.company else 'No Company'})"
 
 
 class LoginRecord(models.Model):
@@ -180,3 +179,64 @@ class Task(models.Model):
 
     def __str__(self):
         return self.title
+class Employee(models.Model):
+    """Company / Dealer employees + system admins."""
+
+    ROLE_CHOICES = [
+        ("APPLICATION_ADMIN", "System Admin"),
+        ("COMPANY_ADMIN", "Company Admin"),
+        ("COMPANY_EMPLOYEE", "Company Employee"),
+        ("DEALER_ADMIN", "Dealer Admin"),
+        ("DEALER_EMPLOYEE", "Dealer Employee"),
+    ]
+
+    company = models.ForeignKey(
+        "Company",
+        on_delete=models.CASCADE,
+        related_name="employees",
+        null=True,
+        blank=True,
+    )
+    dealer = models.ForeignKey(
+        "Dealer",
+        on_delete=models.CASCADE,
+        related_name="employees",
+        null=True,
+        blank=True,
+    )
+
+    name       = models.CharField(max_length=255)
+    email      = models.EmailField(unique=True)
+    phone      = models.CharField(
+        max_length=20,
+        validators=[RegexValidator(r"^\+?1?\d{9,15}$", "Enter a valid phone number.")],
+    )
+    department = models.CharField(max_length=100, blank=True, null=True)
+    role       = models.CharField(max_length=30, choices=ROLE_CHOICES)
+    password   = models.CharField(max_length=128)
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name_plural = "Employees"
+
+    # --- Validation -------------------------------------------------
+    def clean(self):
+        # Company‑side roles must have company FK
+        if self.role in ("COMPANY_ADMIN", "COMPANY_EMPLOYEE") and not self.company:
+            raise ValidationError("Company field is required for company roles.")
+        # Dealer‑side roles must have dealer FK
+        if self.role in ("DEALER_ADMIN", "DEALER_EMPLOYEE") and not self.dealer:
+            raise ValidationError("Dealer field is required for dealer roles.")
+
+    # --- Password hash ---------------------------------------------
+    def save(self, *args, **kwargs):
+        try:
+            identify_hasher(self.password)          # already hashed?
+        except (ValueError, TypeError):
+            self.password = make_password(self.password)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} – {self.get_role_display()}"
