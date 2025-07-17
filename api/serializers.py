@@ -203,3 +203,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if password:
             validated_data["password"] = make_password(password)
         return super().update(instance, validated_data)
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = '__all__'  # or list all explicitly if preferred
+        extra_kwargs = {
+            'password': {'write_only': True}  # ✅ Prevents password from being shown in GET
+        }

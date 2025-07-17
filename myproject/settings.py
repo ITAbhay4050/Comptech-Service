@@ -81,10 +81,12 @@ TEMPLATES: list[dict] = [
 # -----------------------------------------------------------------------------
 # Database: choose MySQL if DJ_DB_ENGINE == "mysql" else SQLite fallback.
 # -----------------------------------------------------------------------------
+# your_project/settings.py
+
 DATABASES = {
     "default": {
         "ENGINE": "mssql",
-        "NAME": os.getenv("DJ_DB_NAME", "Application"),
+        "NAME": os.getenv("DJ_DB_NAME", "Application"), # Yeh aapka current database hai
         "USER": os.getenv("DJ_DB_USER", "sa"),
         "PASSWORD": os.getenv("DJ_DB_PASSWORD", "nipl@12345"),
         "HOST": os.getenv("DJ_DB_HOST", "192.168.1.4"),
@@ -92,9 +94,22 @@ DATABASES = {
         "OPTIONS": {
             "driver": "ODBC Driver 17 for SQL Server",
         },
-    }
+    },
+    "munim006_db": { # Naya database connection
+        "ENGINE": "mssql",
+        "NAME": "munim006", # munim006 database ka naam
+        "USER": "sa", # Munim006 database ka user
+        "PASSWORD": "nipl@12345", # Munim006 database ka password
+        "HOST": "192.168.1.4",
+        "PORT": "1433",
+        "OPTIONS": {
+            "driver": "ODBC Driver 17 for SQL Server",
+        },
+    },
 }
 
+# Optional: Database routing agar aap complex queries kar rahe hain
+DATABASE_ROUTERS = ['api.db_routers.Munim006Router'] # Isko banayenge
 # -----------------------------------------------------------------------------
 # Password validation
 # -----------------------------------------------------------------------------

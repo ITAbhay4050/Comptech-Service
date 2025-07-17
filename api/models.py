@@ -240,3 +240,20 @@ class Employee(models.Model):
 
     def __str__(self):
         return f"{self.name} – {self.get_role_display()}"
+    
+class AccountMaster(models.Model):
+    accountmasterid = models.AutoField(
+        primary_key=True, db_column='AccountMasterId'
+    )
+    pan_no = models.CharField(max_length=20, db_column='panno')
+    accountname = models.CharField(max_length=255, db_column='accountname')
+    email = models.EmailField(db_column='email')
+    gstno = models.CharField(max_length=20, db_column='gstno')
+
+    class Meta:
+        managed = False  # Because this is from external MSSQL DB
+        db_table = 'accountmaster'
+        app_label = 'api'
+
+    def __str__(self):
+        return self.accountname

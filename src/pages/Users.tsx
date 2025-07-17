@@ -90,6 +90,23 @@ const normaliseEmployee = (e: any): User => ({
   createdAt: e.created_at,
 });
 
+const normaliseCompany = (c: any): Company => ({
+  id: String(c.id),
+  name: c.name,
+  address: c.address,
+  city: c.city,
+  state: c.state,
+  country: c.country,
+  pinCode: c.pin_code,
+  contactPerson: c.contact_person,
+  contactEmail: c.contact_email,
+  contactPhone: c.contact_phone,
+  gstNumber: c.gst_number,
+  panNumber: c.pan_number,
+  status: c.is_active ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+  createdAt: c.created_at,
+});
+
 /* ------------------------------------------------------------------ */
 /* ROLE HELPERS                                                       */
 /* ------------------------------------------------------------------ */
@@ -120,60 +137,6 @@ const getRoleBadgeColor = (role: UserRole) => {
       return "bg-gray-100 text-gray-800";
   }
 };
-
-/* ------------------------------------------------------------------ */
-/* MOCK COMPANIES – replace with API if needed                        */
-/* ------------------------------------------------------------------ */
-const mockCompanies: Company[] = [
-  {
-    id: "1",
-    name: "TechCorp Industries",
-    address: "123 Business Ave",
-    city: "Tech City",
-    state: "TC",
-    country: "USA",
-    pinCode: "12345",
-    contactPerson: "John Smith",
-    contactEmail: "john.smith@techcorp.com",
-    contactPhone: "+1 (555) 123-4567",
-    gstNumber: "GST123456789",
-    panNumber: "PAN123456789",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-01T00:00:00Z",
-  },
-  {
-    id: "2",
-    name: "Manufacturing Solutions Ltd",
-    address: "456 Industrial Blvd",
-    city: "Factory Town",
-    state: "FT",
-    country: "USA",
-    pinCode: "67890",
-    contactPerson: "Sarah Johnson",
-    contactEmail: "sarah.johnson@mansol.com",
-    contactPhone: "+1 (555) 987-6543",
-    gstNumber: "GST987654321",
-    panNumber: "PAN987654321",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-02T00:00:00Z",
-  },
-  {
-    id: "3",
-    name: "Global Enterprises Inc",
-    address: "789 Corporate Plaza",
-    city: "Business District",
-    state: "BD",
-    country: "USA",
-    pinCode: "13579",
-    contactPerson: "Michael Brown",
-    contactEmail: "michael.brown@globalent.com",
-    contactPhone: "+1 (555) 456-7890",
-    gstNumber: "GST135792468",
-    panNumber: "PAN135792468",
-    status: UserStatus.ACTIVE,
-    createdAt: "2023-01-03T00:00:00Z",
-  },
-];
 
 /* ------------------------------------------------------------------ */
 /* Dealer Search Component                                            */
@@ -294,7 +257,8 @@ const UsersPage = () => {
 
   /* ----------------------------- STATE ---------------------------- */
   const [users, setUsers] = useState<User[]>([]);
-  const [dealers, setDealers] = useState<Dealer[]>([]); // This will now be populated
+  const [dealers, setDealers] = useState<Dealer[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]); // State for companies
   const [searchTerm, setSearchTerm] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -324,14 +288,63 @@ const UsersPage = () => {
       user?.role === UserRole.DEALER_ADMIN
         ? UserRole.DEALER_EMPLOYEE
         : UserRole.COMPANY_EMPLOYEE, // Default role based on current user
-    companyId: user?.companyId, // Preset companyId if user is company admin
-    dealerId: user?.dealerId, // Preset dealerId if user is dealer admin
+    companyId: user?.companyId ?? undefined, // Set only if available
+    dealerId: user?.dealerId ?? undefined,
   });
 
-  /* ---------------------------- LOAD DATA ------------------------ */
-// ... (previous code)
+  // Effect to set companyId for COMPANY_ADMIN when the dialog opens or user changes
+  useEffect(() => {
+    if (user?.role === UserRole.COMPANY_ADMIN && user.companyId) {
+      setNewUser((prev) => ({
+        ...prev,
+        companyId: user.companyId,
+        // If the company admin is setting a dealer-related role, and they already have a companyId
+        // we might need to ensure the dealer selection is also within that company.
+        // The DealerSearch component's filtering will handle this, but the initial state
+        // should reflect the company admin's context.
+      }));
+    } else if (user?.role === UserRole.DEALER_ADMIN && user.dealerId) {
+      // If dealer admin, pre-fill dealerId and infer companyId
+      const associatedDealer = dealers.find(d => d.id === user.dealerId);
+      setNewUser((prev) => ({
+        ...prev,
+        dealerId: user.dealerId,
+        companyId: associatedDealer?.companyId,
+      }));
+    } else {
+      // For Application Admin or other roles, reset company/dealer selection
+      setNewUser((prev) => ({
+        ...prev,
+        companyId: undefined,
+        dealerId: undefined,
+      }));
+    }
+  }, [user, dealers, isAddDialogOpen]); // Added isAddDialogOpen to re-evaluate on dialog open
 
-/* ---------------------------- LOAD DATA ------------------------ */
+  /* ---------------------------- LOAD DATA ------------------------ */
+  const loadCompanies = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/companies/`, {
+        headers: makeAuthHeaders(token),
+      });
+      if (!res.ok) {
+        throw new Error("Failed to fetch companies");
+      }
+      const json = await res.json();
+      const fetchedCompanies = json.map(normaliseCompany);
+      setCompanies(fetchedCompanies);
+      return fetchedCompanies;
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load companies",
+        variant: "destructive",
+      });
+      console.error("Error loading companies:", error);
+      return [];
+    }
+  }, [token]);
+
   const loadDealers = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/dealers/`, {
@@ -355,7 +368,7 @@ const UsersPage = () => {
     }
   }, [token]);
 
-  const loadUsers = useCallback(async (currentDealers: Dealer[]) => { // Accept dealers as argument
+  const loadUsers = useCallback(async (currentDealers: Dealer[], currentCompanies: Company[]) => { // Accept dealers and companies as arguments
     setIsTableLoading(true); // Set table loading state
     try {
       const res = await fetch(`${API_BASE}/register/employee/`, {
@@ -372,13 +385,16 @@ const UsersPage = () => {
       let filtered: User[] = [];
 
       if (user?.role === UserRole.COMPANY_ADMIN && user.companyId) {
+        // Get all dealer IDs belonging to the current user's company
         const dealerIdsOfCompany = currentDealers
           .filter((d) => d.companyId === user.companyId)
           .map((d) => d.id);
 
         filtered = allUsers.filter((u) => {
           return (
+            // User belongs to the current company directly
             u.companyId === user.companyId ||
+            // User is a dealer employee/admin and their dealer belongs to the current company
             (u.dealerId && dealerIdsOfCompany.includes(u.dealerId))
           );
         });
@@ -406,17 +422,16 @@ const UsersPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (token) {
-        const fetchedDealers = await loadDealers(); // Wait for dealers to load
-        // Only proceed to load users if dealers were successfully fetched or an empty array was returned
-        if (fetchedDealers) {
-          loadUsers(fetchedDealers); // Pass the fetched dealers to loadUsers
+        const fetchedCompanies = await loadCompanies(); // Load companies first
+        const fetchedDealers = await loadDealers(); // Then load dealers
+        // Only proceed to load users if companies and dealers were successfully fetched or empty arrays were returned
+        if (fetchedCompanies && fetchedDealers) {
+          loadUsers(fetchedDealers, fetchedCompanies); // Pass both to loadUsers
         }
       }
     };
     fetchData();
-  }, [token, loadDealers, loadUsers]); // Ensure these dependencies are stable
-
-// ... (rest of the code)// Dependency array should be stable
+  }, [token, loadCompanies, loadDealers, loadUsers]); // Ensure these dependencies are stable
 
   /* --------------------------- HELPERS --------------------------- */
   const dealerMap = useMemo(
@@ -425,8 +440,8 @@ const UsersPage = () => {
   );
 
   const companyMap = useMemo(
-    () => Object.fromEntries(mockCompanies.map((c) => [c.id, c])),
-    [mockCompanies]
+    () => Object.fromEntries(companies.map((c) => [c.id, c])),
+    [companies]
   );
 
   const toggleExpansion = (id: string) =>
@@ -453,79 +468,111 @@ const UsersPage = () => {
     const term = searchTerm.toLowerCase();
     const match = (s?: string) => s?.toLowerCase().includes(term);
 
-    // First find all dealers that match the search criteria
-    const matchedDealers = dealers.filter((dealer) => {
-      return (
+    // First find all dealers that match the search criteria or belong to a company that matches
+    const matchedDealerIds = new Set<string>();
+    const matchedCompanyIds = new Set<string>();
+
+    dealers.forEach(dealer => {
+      if (
         match(dealer.name) ||
         match(dealer.contactPerson) ||
         match(dealer.contactEmail) ||
         match(dealer.contactPhone) ||
         match(dealer.gstNumber)
-      );
+      ) {
+        matchedDealerIds.add(dealer.id);
+        if (dealer.companyId) matchedCompanyIds.add(dealer.companyId);
+      }
     });
 
-    // Get all user IDs from matched dealers (admin + employees)
-    const matchedDealerUserIds = new Set<string>();
-    matchedDealers.forEach((dealer) => {
-      users.forEach((user) => {
-        if (user.dealerId === dealer.id) {
-          matchedDealerUserIds.add(user.id);
-        }
-      });
+    companies.forEach(company => {
+      if (
+        match(company.name) ||
+        match(company.contactPerson) ||
+        match(company.contactEmail) ||
+        match(company.contactPhone) ||
+        match(company.gstNumber)
+      ) {
+        matchedCompanyIds.add(company.id);
+      }
     });
 
     // Now filter users based on either:
     // 1. Direct user field match
     // 2. Belonging to a matched dealer
-    return users.filter((user) => {
-      // Check if user matches directly
-      const userMatch = [user.name, user.email, user.username, user.department].some(match);
+    // 3. Belonging to a matched company (for company-level users)
+    return users.filter((u) => {
+      const userDirectMatch = [u.name, u.email, u.username, u.department].some(match);
 
-      // Check if user belongs to a matched dealer
-      const dealerMatch = matchedDealerUserIds.has(user.id);
+      const userDealerMatch = u.dealerId && matchedDealerIds.has(u.dealerId);
 
-      // If user is a dealer admin, check if their associated dealer matches
-      const userIsDealerAdminAndDealerMatches = user.role === UserRole.DEALER_ADMIN && user.dealerId && matchedDealers.some(d => d.id === user.dealerId);
+      const userCompanyMatch = u.companyId && matchedCompanyIds.has(u.companyId);
 
-      return userMatch || dealerMatch || userIsDealerAdminAndDealerMatches;
+      // Special case: if a user is a dealer admin, and their dealer *itself* matched
+      // or if user is a company admin, and their company *itself* matched.
+      // This is generally covered by userDirectMatch, but explicit check can be helpful.
+      const associatedEntityMatch =
+        (u.role === UserRole.DEALER_ADMIN && u.dealerId && matchedDealerIds.has(u.dealerId)) ||
+        (u.role === UserRole.COMPANY_ADMIN && u.companyId && matchedCompanyIds.has(u.companyId));
+
+
+      return userDirectMatch || userDealerMatch || userCompanyMatch || associatedEntityMatch;
     });
-  }, [users, dealers, searchTerm]);
+  }, [users, dealers, companies, searchTerm]);
+
 
   const systemUsers = useMemo(
     () => filteredUsers.filter((u) => !u.companyId && !u.dealerId),
     [filteredUsers]
   );
-  
+
   // This memo structures users by company and then by dealer for display
   const structuredUsers = useMemo(() => {
     const companiesData = new Map<string, { company: Company, users: User[], dealers: Map<string, { dealer: Dealer, users: User[] }> }>();
 
     // Initialize with all companies that have associated users or dealers that are in the filtered list
     // (This helps ensure companies are displayed even if only their dealers have matched users)
-    filteredUsers.forEach(user => {
-      if (user.companyId && !companiesData.has(user.companyId)) {
-        const company = mockCompanies.find(c => c.id === user.companyId);
-        if (company) {
-          companiesData.set(user.companyId, { company, users: [], dealers: new Map() });
-        }
+    // Also include companies that matched the search term directly
+    [...filteredUsers, ...companies.filter(c => searchTerm.trim() && c.name.toLowerCase().includes(searchTerm.toLowerCase()))].forEach(item => {
+      let companyId: string | undefined;
+      if ('companyId' in item && item.companyId) { // For User and Dealer
+        companyId = item.companyId;
+      } else if ('id' in item && companies.some(c => c.id === item.id)) { // For Company itself
+        companyId = item.id;
       }
-    });
-    
-    dealers.forEach(dealer => {
-      if (dealer.companyId && !companiesData.has(dealer.companyId)) {
-        const company = mockCompanies.find(c => c.id === dealer.companyId);
+
+      if (companyId && !companiesData.has(companyId)) {
+        const company = companies.find(c => c.id === companyId);
         if (company) {
-          companiesData.set(dealer.companyId, { company, users: [], dealers: new Map() });
+          companiesData.set(companyId, { company, users: [], dealers: new Map() });
         }
       }
     });
 
+    // Populate dealers map within each company entry, ensuring all relevant dealers are present
+    // especially if they matched the search, even if no users are directly under them yet.
+    dealers.forEach(dealer => {
+      if (dealer.companyId) {
+        let companyEntry = companiesData.get(dealer.companyId);
+        if (!companyEntry) {
+          const company = companies.find(c => c.id === dealer.companyId);
+          if (company) {
+            companyEntry = { company, users: [], dealers: new Map() };
+            companiesData.set(dealer.companyId, companyEntry);
+          }
+        }
+        if (companyEntry && !companyEntry.dealers.has(dealer.id)) {
+          companyEntry.dealers.set(dealer.id, { dealer, users: [] });
+        }
+      }
+    });
 
     filteredUsers.forEach(user => {
       if (user.companyId) {
         const companyEntry = companiesData.get(user.companyId);
         if (companyEntry) {
           if (user.dealerId) {
+            // Ensure the dealer entry exists before pushing the user
             if (!companyEntry.dealers.has(user.dealerId)) {
               const dealer = dealers.find(d => d.id === user.dealerId);
               if (dealer) {
@@ -542,7 +589,7 @@ const UsersPage = () => {
 
     return Array.from(companiesData.values())
       .sort((a, b) => a.company.name.localeCompare(b.company.name)); // Sort companies by name
-  }, [filteredUsers, dealers, mockCompanies]);
+  }, [filteredUsers, dealers, companies, searchTerm]);
 
 
   /* --------------------- CREATE / DELETE ------------------------- */
@@ -598,6 +645,15 @@ const UsersPage = () => {
       return;
     }
 
+    // If a dealer is selected, ensure the correct companyId is also set based on the dealer
+    if (newUser.dealerId && !newUser.companyId) {
+        const selectedDealer = dealers.find(d => d.id === newUser.dealerId);
+        if (selectedDealer) {
+            setNewUser(prev => ({ ...prev, companyId: selectedDealer.companyId }));
+        }
+    }
+
+
     setIsLoading(true);
 
     try {
@@ -610,10 +666,11 @@ const UsersPage = () => {
         password: newUser.password,
       };
 
-      // Only include company if the role requires it
+      // Only include company if the role requires it OR if a dealer is selected (which implies a company)
       if (
         newUser.role === UserRole.COMPANY_ADMIN ||
-        newUser.role === UserRole.COMPANY_EMPLOYEE
+        newUser.role === UserRole.COMPANY_EMPLOYEE ||
+        newUser.dealerId // If a dealer is selected, its company ID must be passed
       ) {
         payload.company = newUser.companyId;
       }
@@ -633,9 +690,9 @@ const UsersPage = () => {
       });
 
       if (response.ok) {
-        const createdEmployee = await response.json();
+        // const createdEmployee = await response.json(); // We don't need this specific object right now
         // Reload all users to ensure correct filtering and display after adding
-        loadUsers(dealers); // Pass current dealers to reload users
+        await loadUsers(dealers, companies); // Pass current dealers and companies to reload users
 
         toast({
           title: "Success",
@@ -654,14 +711,16 @@ const UsersPage = () => {
             user?.role === UserRole.DEALER_ADMIN
               ? UserRole.DEALER_EMPLOYEE
               : UserRole.COMPANY_EMPLOYEE,
-          companyId: user?.companyId,
-          dealerId: user?.dealerId,
+          companyId: user?.companyId, // Reset based on current user's context
+          dealerId: user?.dealerId, // Reset based on current user's context
         });
 
         setIsAddDialogOpen(false);
       } else {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to register employee");
+        // Improved error message handling from backend
+        const errorMessage = Object.values(errorData).flat().join(", ") || "Failed to register employee";
+        throw new Error(errorMessage);
       }
     } catch (error) {
       toast({
@@ -745,9 +804,9 @@ const UsersPage = () => {
     </TableRow>
   );
 
-  /* ------------------------------------------------------------------
-   * RENDER
-   * ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* RENDER                                                             */
+  /* ------------------------------------------------------------------ */
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -872,23 +931,46 @@ const UsersPage = () => {
                     <Select
                       value={newUser.role}
                       onValueChange={(value) =>
-                        setNewUser({
-                          ...newUser,
-                          role: value as UserRole,
-                          // Reset company/dealer ID if role changes to avoid invalid combinations
-                          companyId:
-                            value === UserRole.COMPANY_EMPLOYEE ||
-                            value === UserRole.COMPANY_ADMIN
-                              ? (user?.role === UserRole.COMPANY_ADMIN ? user.companyId : undefined) // Keep if company admin, otherwise clear
-                              : undefined,
-                          dealerId:
-                            value === UserRole.DEALER_EMPLOYEE ||
-                            value === UserRole.DEALER_ADMIN
-                              ? (user?.role === UserRole.DEALER_ADMIN ? user.dealerId : undefined) // Keep if dealer admin, otherwise clear
-                              : undefined,
+                        setNewUser((prev) => {
+                          const newRole = value as UserRole;
+                          let updatedCompanyId = prev.companyId;
+                          let updatedDealerId = prev.dealerId;
+
+                          // Logic for handling companyId and dealerId based on selected role
+                          if (newRole === UserRole.APPLICATION_ADMIN) {
+                            updatedCompanyId = undefined;
+                            updatedDealerId = undefined;
+                          } else if (newRole === UserRole.COMPANY_ADMIN || newRole === UserRole.COMPANY_EMPLOYEE) {
+                            updatedDealerId = undefined; // Clear dealer if switching to company-level role
+                            if (user?.role === UserRole.COMPANY_ADMIN) {
+                              updatedCompanyId = user.companyId; // Company Admin can only create users for their company
+                            }
+                          } else if (newRole === UserRole.DEALER_ADMIN || newRole === UserRole.DEALER_EMPLOYEE) {
+                            if (user?.role === UserRole.DEALER_ADMIN) {
+                              updatedDealerId = user.dealerId; // Dealer Admin can only create users for their dealer
+                              // Also set companyId if dealerId is known and has an associated company
+                              const associatedDealer = dealers.find(d => d.id === user.dealerId);
+                              updatedCompanyId = associatedDealer?.companyId;
+                            } else {
+                              // If Application or Company Admin, dealer will be selected via DealerSearch,
+                              // and the companyId will be inferred from the dealer.
+                              // So, for now, we might clear companyId if no dealer is yet selected.
+                              if (!prev.dealerId) { // Only clear if no dealer is pre-selected
+                                updatedCompanyId = undefined;
+                              }
+                            }
+                          }
+
+                          return {
+                            ...prev,
+                            role: newRole,
+                            companyId: updatedCompanyId,
+                            dealerId: updatedDealerId,
+                          };
                         })
                       }
                     >
+
                       <SelectTrigger className="col-span-3">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
@@ -916,46 +998,42 @@ const UsersPage = () => {
                   </div>
 
                   {/* COMPANY (Visible for APPLICATION_ADMIN, or COMPANY_ADMIN adding company-level users) */}
-                  {(user?.role === UserRole.APPLICATION_ADMIN ||
-                    (user?.role === UserRole.COMPANY_ADMIN &&
-                      (newUser.role === UserRole.COMPANY_ADMIN ||
-                      newUser.role === UserRole.COMPANY_EMPLOYEE))) &&
-                    (newUser.role === UserRole.COMPANY_ADMIN ||
-                      newUser.role === UserRole.COMPANY_EMPLOYEE) && (
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="company" className="text-right">
-                          Company
-                        </Label>
-                        <Select
-                          value={newUser.companyId}
-                          onValueChange={(value) =>
-                            setNewUser({ ...newUser, companyId: value, dealerId: undefined }) // Clear dealer when company changes
-                          }
-                          disabled={user?.role === UserRole.COMPANY_ADMIN} // Company Admin cannot change company
-                        >
-                          <SelectTrigger className="col-span-3">
-                            <SelectValue placeholder="Select company" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {/* If Company Admin, only show their company */}
-                            {user?.role === UserRole.COMPANY_ADMIN
-                              ? mockCompanies
-                                  .filter(c => c.id === user.companyId)
-                                  .map((c) => (
-                                    <SelectItem key={c.id} value={c.id}>
-                                      {c.name}
-                                    </SelectItem>
-                                  ))
-                              : // If Application Admin, show all companies
-                                mockCompanies.map((c) => (
+                  {((user?.role === UserRole.APPLICATION_ADMIN && (newUser.role === UserRole.COMPANY_ADMIN || newUser.role === UserRole.COMPANY_EMPLOYEE || newUser.role === UserRole.DEALER_ADMIN || newUser.role === UserRole.DEALER_EMPLOYEE)) || // App Admin sees company for all company/dealer roles
+                    (user?.role === UserRole.COMPANY_ADMIN && (newUser.role === UserRole.COMPANY_ADMIN || newUser.role === UserRole.COMPANY_EMPLOYEE || newUser.role === UserRole.DEALER_ADMIN || newUser.role === UserRole.DEALER_EMPLOYEE))) && ( // Company Admin sees company for all roles they can create
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="company" className="text-right">
+                        Company
+                      </Label>
+                      <Select
+                        value={newUser.companyId || ""}
+                        onValueChange={(value) =>
+                          setNewUser({ ...newUser, companyId: value, dealerId: undefined }) // Clear dealer when company changes
+                        }
+                        disabled={user?.role === UserRole.COMPANY_ADMIN || newUser.role === UserRole.DEALER_ADMIN || newUser.role === UserRole.DEALER_EMPLOYEE} // Disable if Company Admin or if a dealer role is selected (company derived from dealer)
+                      >
+                        <SelectTrigger className="col-span-3">
+                          <SelectValue placeholder="Select company" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* If Company Admin, only show their company */}
+                          {user?.role === UserRole.COMPANY_ADMIN
+                            ? companies
+                                .filter(c => c.id === user.companyId)
+                                .map((c) => (
                                   <SelectItem key={c.id} value={c.id}>
                                     {c.name}
                                   </SelectItem>
-                                ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                                ))
+                            : // If Application Admin, show all companies
+                              companies.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   {/* DEALER (Visible for APPLICATION_ADMIN, or COMPANY_ADMIN adding dealer-level users) */}
                   {(user?.role === UserRole.APPLICATION_ADMIN || user?.role === UserRole.COMPANY_ADMIN) &&
@@ -966,7 +1044,7 @@ const UsersPage = () => {
                         </Label>
                         <div className="col-span-3">
                           <DealerSearch
-                            dealers={companyDealers.filter(d => user?.role !== UserRole.COMPANY_ADMIN || d.companyId === newUser.companyId)} // Filter dealers by selected company if Company Admin
+                            dealers={companyDealers.filter(d => !newUser.companyId || d.companyId === newUser.companyId)} // Filter dealers by selected company if a company is selected
                             onSelect={(dealerId) => setNewUser({ ...newUser, dealerId, companyId: dealerMap[dealerId]?.companyId })} // Auto-set company based on selected dealer
                             value={newUser.dealerId}
                           />
@@ -975,7 +1053,7 @@ const UsersPage = () => {
                     )}
                   {/* DEALER (Dealer Admin creating Dealer employees - pre-filled and disabled) */}
                   {user?.role === UserRole.DEALER_ADMIN &&
-                    newUser.role === UserRole.DEALER_EMPLOYEE && (
+                    (newUser.role === UserRole.DEALER_EMPLOYEE || newUser.role === UserRole.DEALER_ADMIN) && ( // Ensure it shows for Dealer Admin creating other dealer roles
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="dealer" className="text-right">
                           Dealer
@@ -988,6 +1066,7 @@ const UsersPage = () => {
                         />
                         {/* Hidden input to ensure dealerId is sent with form */}
                         <input type="hidden" name="dealerId" value={newUser.dealerId} />
+                        <input type="hidden" name="companyId" value={newUser.companyId} /> {/* Also pass companyId for dealer admin */}
                       </div>
                     )}
 
@@ -1106,14 +1185,25 @@ const UsersPage = () => {
                   {(user?.role === UserRole.APPLICATION_ADMIN || user?.role === UserRole.COMPANY_ADMIN) &&
                     structuredUsers.map((companyData) => {
                       // Filter company data if current user is COMPANY_ADMIN
-                      if (user?.role === UserRole.COMPANY_ADMIN && companyData.company.id !== user.companyId) {
-                        return null;
+                      if (user?.role === UserRole.COMPANY_ADMIN && companyData.company.id !== user.companyId && companyData.users.length === 0 && Array.from(companyData.dealers.values()).every(d => d.users.length === 0)) {
+                        return null; // Don't render companies the COMPANY_ADMIN is not authorized to see, especially if they have no relevant users
                       }
 
                       const compKey = `company-${companyData.company.id}`;
                       const totalCompanyUsers = companyData.users.length + Array.from(companyData.dealers.values()).reduce((sum, d) => sum + d.users.length, 0);
 
-                      if (totalCompanyUsers === 0) return null; // Don't render empty company sections
+                      // Only render company section if it contains users (or if a search term is active)
+                      if (totalCompanyUsers === 0 && !searchTerm) {
+                          // This condition prevents rendering empty company sections when not searching.
+                          // However, during search, if a company/dealer itself matches but has no matching *users*,
+                          // we still want to show the company/dealer row, just with 0 users.
+                          // So, we need to consider if the company or its dealers are part of the search results.
+                          const companyOrDealerMatchedInSearch =
+                            (searchTerm && (companyData.company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            dealers.some(d => d.companyId === companyData.company.id && (d.name.toLowerCase().includes(searchTerm.toLowerCase()))))) ||
+                            totalCompanyUsers > 0; // Always show if there are users
+                          if (!companyOrDealerMatchedInSearch) return null;
+                      }
 
                       return (
                         <React.Fragment key={compKey}>
@@ -1142,7 +1232,8 @@ const UsersPage = () => {
                             const dealerKey = `dealer-${dealerData.dealer.id}`;
                             const totalDealerUsers = dealerData.users.length;
 
-                            if (totalDealerUsers === 0) return null;
+                            // Only render dealer section if it contains users (or if a search term is active and dealer matched)
+                            if (totalDealerUsers === 0 && !searchTerm && !dealerMap[dealerData.dealer.id]?.name.toLowerCase().includes(searchTerm.toLowerCase())) return null;
 
                             return (
                               <React.Fragment key={dealerKey}>

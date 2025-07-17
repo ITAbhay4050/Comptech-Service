@@ -1,3 +1,4 @@
+// src/pages/Dealers.tsx
 import { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "@/components/Layout/DashboardLayout";
 import CreateDealerForm from "@/components/DealerManagement/CreateDealerForm";
@@ -57,7 +58,7 @@ const normaliseDealer = (d: any): Dealer => ({
   id: String(d.id),
   companyId: String(d.company),
   name: d.name,
-  contactPerson: d.name, // adjust if API sends separate field
+  contactPerson: d.name,
   contactEmail: d.email,
   contactPhone: d.phone,
   address: d.address,
@@ -67,7 +68,7 @@ const normaliseCompany = (c: any): Company => ({
   id: String(c.id),
   name: c.name,
   address: c.address,
-  contactPerson: c.name, // adjust as needed
+  contactPerson: c.name,
   contactEmail: c.email,
   contactPhone: c.phone,
 });
@@ -79,7 +80,6 @@ const Dealers = () => {
   const { user } = useAuth();
   const token = user?.token;
 
-  /* ---------- state ---------- */
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -87,13 +87,11 @@ const Dealers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* ---------- data load ---------- */
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Dealers
       const dRes = await fetch(`${API_BASE}/dealers/`, {
         headers: makeAuthHeaders(token),
       });
@@ -101,13 +99,12 @@ const Dealers = () => {
       const dJson = await dRes.json();
       const dealersNorm: Dealer[] = dJson.map(normaliseDealer);
 
-      // Companies (only for elevated roles)
       let companiesNorm: Company[] = [];
       if (
         user?.role === UserRole.APPLICATION_ADMIN ||
         user?.role === UserRole.COMPANY_ADMIN
       ) {
-        const cRes = await fetch(`${API_BASE}/register/company/`, {
+        const cRes = await fetch(`${API_BASE}/companies/`, {
           headers: makeAuthHeaders(token),
         });
         if (!cRes.ok) throw new Error("Could not fetch companies");
@@ -128,7 +125,6 @@ const Dealers = () => {
     loadData();
   }, [loadData]);
 
-  /* ---------- filters ---------- */
   const filteredDealers = dealers
     .filter((d) =>
       user?.role === UserRole.COMPANY_ADMIN && user.companyId
@@ -155,7 +151,6 @@ const Dealers = () => {
   const dealerCountForCompany = (cid: string) =>
     dealers.filter((d) => d.companyId === cid).length;
 
-  /* ---------- CRUD callbacks ---------- */
   const handleDealerCreated = (newDealer: Dealer, _admin: User) => {
     setDealers((prev) => [...prev, newDealer]);
     setIsAddDialogOpen(false);
@@ -174,7 +169,6 @@ const Dealers = () => {
     }
   };
 
-  /* ---------- early returns ---------- */
   if (loading) {
     return (
       <DashboardLayout>
@@ -192,11 +186,10 @@ const Dealers = () => {
     );
   }
 
-  /* ---------- render ---------- */
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* header + add dialog */}
+        {/* Header + Add Dialog */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold tracking-tight">
@@ -235,7 +228,7 @@ const Dealers = () => {
           </Dialog>
         </div>
 
-        {/* company list (APPLICATION_ADMIN) */}
+        {/* Application Admin — Company List */}
         {user?.role === UserRole.APPLICATION_ADMIN && (
           <Card>
             <CardHeader>
@@ -302,7 +295,7 @@ const Dealers = () => {
           </Card>
         )}
 
-        {/* company info (COMPANY_ADMIN) */}
+        {/* Company Admin — Company Info */}
         {user?.role === UserRole.COMPANY_ADMIN && (
           <Card>
             <CardHeader>
@@ -347,7 +340,7 @@ const Dealers = () => {
           </Card>
         )}
 
-        {/* search */}
+        {/* Search */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -365,7 +358,7 @@ const Dealers = () => {
           </CardContent>
         </Card>
 
-        {/* dealers table */}
+        {/* Dealers Table */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

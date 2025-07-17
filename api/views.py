@@ -9,7 +9,8 @@ Last updated 7 Jul 2025
 ✓ DRF Token auth on protected routes
 """
 from rest_framework import status, permissions
-
+from .models import AccountMaster 
+from django.db import connections
 from datetime import timedelta
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
@@ -279,38 +280,16 @@ class RegisterEmployee(APIView):
         return Response(EmployeeSerializer(Employee.objects.all(), many=True).data)
 
     def post(self, request):
-        data = request.data.copy()
-        email = data.get("email")
-        role = data.get("role")
-
+        email = request.data.get("email")
         if Employee.objects.filter(email=email).exists():
             return Response({"message": "Employee already exists."}, status=400)
 
-        # ✅ Ensure company_id for company-related roles
-        if role in ["COMPANY_EMPLOYEE", "COMPANY_ADMIN"]:
-            if not data.get("company"):
-                return Response({"message": "Company ID is required."}, status=400)
-
-        # ✅ Ensure dealer_id & fetch company_id from dealer for dealer roles
-        if role in ["DEALER_EMPLOYEE", "DEALER_ADMIN"]:
-            dealer_id = data.get("dealer")
-            if not dealer_id:
-                return Response({"message": "Dealer ID is required."}, status=400)
-
-            try:
-                dealer = Dealer.objects.get(id=dealer_id)
-                data["company"] = dealer.company_id  # Link dealer's company to employee
-            except Dealer.DoesNotExist:
-                return Response({"message": "Dealer not found."}, status=404)
-
-        # ✅ Continue with normal registration
-        serializer = EmployeeSerializer(data=data)
+        serializer = EmployeeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+      
         emp = serializer.save()
-
         return Response(
-            {"message": "Employee registered.", **EmployeeSerializer(emp).data},
-            status=201,
+            {"message": "Employee registered.", **EmployeeSerializer(emp).data}, status=201
         )
 
 
@@ -383,3 +362,57 @@ def check_serial_unique(request):
     serial = request.query_params.get("serial", "").strip()
     exists = MachineInstallation.objects.filter(serial_number__iexact=serial).exists()
     return Response({"isUnique": not exists})
+class EmployeeLoginView(APIView):
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        try:
+            employee = Employee.objects.get(email=email)
+        except Employee.DoesNotExist:
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if check_password(password, employee.password):
+            # Optionally: generate and return token or session
+            return Response({
+                "message": "Login successful",
+                "employee_id": employee.id,
+                "name": employee.name,
+                "role": employee.role,
+                "company_id": employee.company.id if employee.company else None,
+                "dealer_id": employee.dealer.id if employee.dealer else None,
+            })
+        else:
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+class GetDealerDataByGST(APIView):
+    permission_classes = [AllowAny] 
+    def get(self, request):
+        gst_no = request.query_params.get('gst_no', None)
+        if not gst_no:
+            return Response({"error": "GST number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # munim006_db database se data fetch karein
+            # .using('munim006_db') is essential if you have multiple databases
+            account_data = AccountMaster.objects.using('munim006_db').get(gstno=gst_no)
+            data = {
+                "name": account_data.accountname,
+                "email": account_data.email,
+                "pan_no": account_data.pan_no,
+                "gst_no": account_data.gstno, # Return gst_no as well
+            }
+            return Response(data, status=status.HTTP_200_OK)
+        except AccountMaster.DoesNotExist:
+            return Response({"error": "No data found for this GST number."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# class RegisterCompany(APIView):
+#     permission_classes = [AllowAny]
+
+#     def get(self, request):
+#         return Response(CompanySerializer(Company.objects.all(), many=True).data)
+
+class CompanyListView(ListAPIView):
+    queryset = Company.objects.all()
+    serializer_class = CompanySerializer
+    permission_classes = [AllowAny]

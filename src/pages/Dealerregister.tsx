@@ -33,7 +33,13 @@ const DealerRegister = () => {
   const [otp, setOtp] = useState('');
   const [showOtp, setShowOtp] = useState(false);
   const [tempDealerData, setTempDealerData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  // State to manage editability of fields
+  const [isNameEditable, setIsNameEditable] = useState(true);
+  const [isEmailEditable, setIsEmailEditable] = useState(true);
+  const [isPanNoEditable, setIsPanNoEditable] = useState(true);
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/api/register/company/')
@@ -50,6 +56,68 @@ const DealerRegister = () => {
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    // If GST number changes, make fields editable again
+    if (e.target.name === 'gst_no') {
+      setIsNameEditable(true);
+      setIsEmailEditable(true);
+      setIsPanNoEditable(true);
+    }
+  };
+
+  const handleGetDealerData = async () => {
+    if (!formData.gst_no) {
+      toast({
+        title: 'Input Required',
+        description: 'Please enter a GST number to fetch data.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(
+        `http://127.0.0.1:8000/api/get-dealer-data-by-gst/?gst_no=${formData.gst_no}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setFormData((prevData) => ({
+          ...prevData,
+          name: data.name || '',
+          email: data.email || '',
+          pan_no: data.pan_no || '',
+        }));
+        setIsNameEditable(false);
+        setIsEmailEditable(false);
+        setIsPanNoEditable(false);
+        toast({
+          title: 'Data Fetched',
+          description: 'Dealer data loaded successfully!',
+        });
+      } else {
+        const errorData = await res.json();
+        toast({
+          title: 'Error',
+          description: errorData.error || 'Failed to fetch dealer data.',
+          variant: 'destructive',
+        });
+        setIsNameEditable(true);
+        setIsEmailEditable(true);
+        setIsPanNoEditable(true);
+      }
+    } catch (error) {
+      toast({
+        title: 'Network Error',
+        description: 'Could not connect to the server to fetch data.',
+        variant: 'destructive',
+      });
+      setIsNameEditable(true);
+      setIsEmailEditable(true);
+      setIsPanNoEditable(true);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -117,7 +185,7 @@ const DealerRegister = () => {
             title: 'Success',
             description: 'Dealer registered successfully!',
           });
-          setTimeout(() => navigate('/login'), 2000); // wait 2 seconds before navigating
+          setTimeout(() => navigate('/login'), 2000);
         } else {
           toast({
             title: 'Error',
@@ -155,18 +223,88 @@ const DealerRegister = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* GST Number Field with Get Data Button */}
+              <div className="space-y-1">
+                <Label htmlFor="gst_no">GST Number</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="gst_no"
+                    name="gst_no"
+                    type="text"
+                    placeholder="Enter GST Number"
+                    value={formData.gst_no}
+                    onChange={handleChange}
+                    required
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={handleGetDealerData}
+                    disabled={!formData.gst_no || isLoading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    {isLoading ? 'Fetching...' : 'Get Data'}
+                  </Button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Dealer Name */}
+                <div className="space-y-1">
+                  <Label htmlFor="name">Dealer Name</Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    type="text"
+                    placeholder="Dealer Name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                    readOnly={!isNameEditable}
+                    className={!isNameEditable ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  />
+                </div>
+
+                {/* Email */}
+                <div className="space-y-1">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="Email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    readOnly={!isEmailEditable}
+                    className={!isEmailEditable ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  />
+                </div>
+
+                {/* PAN Number */}
+                <div className="space-y-1">
+                  <Label htmlFor="pan_no">PAN Number</Label>
+                  <Input
+                    id="pan_no"
+                    name="pan_no"
+                    type="text"
+                    placeholder="PAN Number"
+                    value={formData.pan_no}
+                    onChange={handleChange}
+                    required
+                    readOnly={!isPanNoEditable}
+                    className={!isPanNoEditable ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  />
+                </div>
+
+                {/* Other fields */}
                 {[
-                  { name: 'name', label: 'Dealer Name' },
-                  { name: 'email', label: 'Email', type: 'email' },
-                  { name: 'phone', label: 'Phone' },
+                  { name: 'phone', label: 'Phone', type: 'tel' },
                   { name: 'address', label: 'Address' },
                   { name: 'city', label: 'City' },
                   { name: 'state', label: 'State' },
                   { name: 'country', label: 'Country' },
-                  { name: 'pin_code', label: 'PIN Code' },
-                  { name: 'gst_no', label: 'GST Number' },
-                  { name: 'pan_no', label: 'PAN Number' },
+                  { name: 'pin_code', label: 'PIN Code', type: 'text' },
                 ].map((field) => (
                   <div key={field.name} className="space-y-1">
                     <Label htmlFor={field.name}>{field.label}</Label>
@@ -181,6 +319,8 @@ const DealerRegister = () => {
                     />
                   </div>
                 ))}
+
+                {/* Company Selection */}
                 <div className="space-y-1">
                   <Label htmlFor="company">Select Company</Label>
                   <select
@@ -188,7 +328,7 @@ const DealerRegister = () => {
                     name="company"
                     value={formData.company}
                     onChange={handleChange}
-                    className="w-full border rounded-md p-2"
+                    className="w-full border rounded-md p-2 h-10 bg-white dark:bg-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-700 focus:ring-purple-500 focus:border-purple-500"
                     required
                   >
                     <option value="">-- Select Company --</option>
@@ -229,7 +369,10 @@ const DealerRegister = () => {
 
               {/* OTP Logic */}
               {!showOtp ? (
-                <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                <Button
+                  type="submit"
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                >
                   Send OTP
                 </Button>
               ) : (
