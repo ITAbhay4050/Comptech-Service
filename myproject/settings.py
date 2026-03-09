@@ -84,7 +84,7 @@ TEMPLATES: list[dict] = [
 DATABASES = {
     "default": {
         "ENGINE": "mssql",
-        "NAME": os.getenv("DJ_DB_NAME", "Application"),
+        "NAME": os.getenv("DJ_DB_NAME", "App_pro"),
         "USER": os.getenv("DJ_DB_USER", "sa"),
         "PASSWORD": os.getenv("DJ_DB_PASSWORD", "nipl@12345"),
         "HOST": os.getenv("DJ_DB_HOST", "192.168.1.4"),
@@ -95,7 +95,7 @@ DATABASES = {
     },
     "munim006_db": {
         "ENGINE": "mssql",
-        "NAME": "munim006",
+        "NAME": "Munim006",
         "USER": "sa",
         "PASSWORD": "nipl@12345",
         "HOST": "192.168.1.4",

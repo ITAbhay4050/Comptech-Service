@@ -3,6 +3,8 @@ from django.contrib import messages
 from django.db.models import Q
 from .models import Company, Dealer, LoginRecord, MachineInstallation, Task, Employee
 from django.contrib.auth.hashers import make_password
+from .models import SalesInvoice
+
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
@@ -27,10 +29,24 @@ class MachineInstallationAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("title", "deadline", "priority", "status", "assigner_id", "assignee_id")
-    search_fields = ("title", "description", "status", "priority")
-    list_filter = ("priority", "status")
 
+    list_display = ("title", "deadline", "priority", "status", "assigner", "assignee")
+    search_fields = ("title", "description", "status", "priority")
+    list_filter = ("priority", "status", "assigner")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+
+        # 🔥 Assigner dropdown me sirf Company model
+        if db_field.name == "assigner":
+            kwargs["queryset"] = Company.objects.all()
+
+        # 🔥 Assignee dropdown me sirf Company Employee
+        if db_field.name == "assignee":
+            kwargs["queryset"] = Employee.objects.filter(
+                role="COMPANY_EMPLOYEE"
+            )
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     list_display = ("name", "email", "phone", "role_display", 
@@ -110,3 +126,8 @@ def save_model(self, request, obj, form, change):
     if not change:  # Only for new employee
         obj.password = make_password(form.cleaned_data['password'])
     super().save_model(request, obj, form, change)
+@admin.register(SalesInvoice)
+class SalesInvoiceAdmin(admin.ModelAdmin):
+    list_display = ('SalesInvoiceId', 'DocumentNo', 'DocumentDate')
+    search_fields = ('DocumentNo', 'AccountName')
+    list_filter = ('DocumentDate',)

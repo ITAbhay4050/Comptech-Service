@@ -7,6 +7,7 @@ export enum UserRole {
   COMPANY_EMPLOYEE   = "COMPANY_EMPLOYEE",
   DEALER_ADMIN       = "DEALER_ADMIN",
   DEALER_EMPLOYEE    = "DEALER_EMPLOYEE",
+  SYSTEM_ADMIN = "SYSTEM_ADMIN",
 }
 
 export enum UserStatus {
@@ -98,6 +99,7 @@ export interface MachinePhoto {
  * the front‑end, map the response after fetch.
  */
 export interface Machine {
+  item_name: any;
   id: number;
 
   /* identifiers */

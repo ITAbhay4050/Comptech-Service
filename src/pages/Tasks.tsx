@@ -41,6 +41,7 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -67,17 +68,20 @@ const apiFetch = async (
   return res.json();
 };
 
+// Normalise task – handle missing fields safely
 const normaliseTask = (t: any): Task => ({
   id: String(t.id),
-  title: t.title,
-  description: t.description,
+  title: t.title || "",
+  description: t.description || "",
   created_at: t.created_at,
   deadline: t.deadline,
-  priority: t.priority,
-  status: t.status,
-  assigner_id: String(t.assigner_id),
-  assignee_id: String(t.assignee_id),
-  machine_id: t.machine_id,
+  priority: t.priority || "medium",
+  status: t.status || "pending",
+  // Map 'assignee' (the ID from Django) to 'assignee_id' for your filter
+  assignee_id: t.assignee ? String(t.assignee) : null, 
+  assigner_id: t.assigner ? String(t.assigner) : null,
+  assignee_name: t.assignee_name || "Unassigned",
+  assigner_name: t.assigner_name || "N/A",
 });
 
 /* ------------------------------------------------------------------ */
@@ -102,7 +106,7 @@ const StatusBadge = ({ s }: { s: Task["status"] }) => {
     ),
     "in-progress": (
       <Badge className="flex items-center gap-1 bg-blue-100 text-blue-800 border-blue-300">
-        <AlertTriangle className="h-3 w-3" /> In&nbsp;Progress
+        <AlertTriangle className="h-3 w-3" /> In Progress
       </Badge>
     ),
     completed: (
@@ -128,76 +132,95 @@ const Tasks = () => {
 
   /* ---------------- state --------------- */
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; role: string }[]>([]);
   const [searchTerm, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Task["status"] | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
 
   const resetDraft = (): Partial<Task> => ({
     title: "",
     description: "",
-    deadline: new Date().toISOString().split("T")[0],
+    deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     priority: "medium",
     status: "pending",
-    assigner_id: String(user?.id),
     assignee_id: "",
-    machine_id: "NA",
   });
   const [draft, setDraft] = useState<Partial<Task>>(resetDraft);
 
-  const canAssign = [
-    UserRole.APPLICATION_ADMIN,
-    UserRole.COMPANY_ADMIN,
-    UserRole.DEALER_ADMIN,
-    UserRole.COMPANY_EMPLOYEE,
-  ].includes(user?.role as UserRole);
+  // Permissions
+  const canCreate = user?.role === UserRole.APPLICATION_ADMIN || user?.role === UserRole.COMPANY_ADMIN;
+  const canDelete = user?.role === UserRole.APPLICATION_ADMIN; // or company admin can delete own tasks
 
-  /* --------------- fetch list -------------- */
+  /* --------------- fetch data -------------- */
   const fetchTasks = async () => {
     try {
       setLoading(true);
       const data = await apiFetch("/tasks/", {}, token);
-      const list: Task[] = (Array.isArray(data) ? data : data.results).map(
-        normaliseTask,
-      );
+      const list: Task[] = (Array.isArray(data) ? data : data.results || []).map(normaliseTask);
       setTasks(list);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message || "Fetch failed" });
+      toast({ title: "Error", description: e.message || "Fetch failed", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchEmployees = async () => {
+    if (!canCreate) return;
+    try {
+      setEmployeesLoading(true);
+      const data = await apiFetch("/employees/", {}, token);
+      setEmployees(Array.isArray(data) ? data : data.results || []);
+    } catch (e: any) {
+      console.error("Failed to fetch employees:", e);
+    } finally {
+      setEmployeesLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (token) fetchTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (token) {
+      fetchTasks();
+      fetchEmployees();
+    }
   }, [token]);
+const visibleTasks = tasks.filter((t) => {
+  // 1. Search Filter (Title or Description)
+  const hitsSearch =
+    t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    t.description.toLowerCase().includes(searchTerm.toLowerCase());
 
-  /* ------------- visible list ------------- */
-  const visibleTasks = tasks.filter((t) => {
-    const hitsSearch =
-      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const hitsStatus = statusFilter ? t.status === statusFilter : true;
+  // 2. Status Filter (Tabs)
+  const hitsStatus = statusFilter ? t.status === statusFilter : true;
 
-    if ([UserRole.COMPANY_EMPLOYEE, UserRole.DEALER_EMPLOYEE].includes(user?.role as UserRole))
-      return hitsSearch && hitsStatus && t.assignee_id === String(user?.id);
+  // 3. User Role & Permission Logic
+  if (!user) return false;
 
-    if (user?.role === UserRole.DEALER_ADMIN)
-      return (
-        hitsSearch &&
-        hitsStatus &&
-        (t.assigner_id === String(user?.id) || t.assignee_id === String(user?.id))
-      );
+  // Since your Django backend is already filtering the querysets:
+  // - Company Admins only receive their company's tasks.
+  // - Company Employees only receive their assigned tasks.
+  // - Dealer roles receive an empty list.
+  
+  // We only need to check search and status hits. 
+  // Avoid checking 't.assignee_id === user.id' here to prevent ID type mismatches.
+  if (user.role === UserRole.DEALER_ADMIN || user.role === UserRole.DEALER_EMPLOYEE) {
+    return false;
+  }
 
-    return hitsSearch && hitsStatus;
-  });
-
-  /* --------------- create task ------------- */
+  return hitsSearch && hitsStatus;
+});  /* --------------- create task ------------- */
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
-    if (!draft.title || !draft.description || !draft.assignee_id) {
-      toast({ title: "Error", description: "Fill all required fields", variant: "destructive" });
+    if (!draft.title || !draft.description || !draft.assignee_id || !draft.deadline) {
+      toast({
+        title: "Error",
+        description: "Please fill all required fields",
+        variant: "destructive"
+      });
       return;
     }
     try {
@@ -207,31 +230,80 @@ const Tasks = () => {
         token,
       );
       setTasks((prev) => [...prev, normaliseTask(newTask)]);
-      toast({ title: "Success", description: "Task created." });
-      setDialogOpen(false);
+      toast({ title: "Success", description: "Task created successfully." });
+      setCreateDialogOpen(false);
       setDraft(resetDraft());
     } catch (e: any) {
-      toast({ title: "Error", description: e.message || "Create failed" });
+      toast({ title: "Error", description: e.message || "Create failed", variant: "destructive" });
     }
+  };
+
+  /* ------------ update status ------------- */
+  const handleStatusChange = async (taskId: string, newStatus: Task["status"]) => {
+    try {
+      const updatedTask = await apiFetch(
+        `/tasks/${taskId}/`,
+        { method: "PATCH", body: JSON.stringify({ status: newStatus }) },
+        token,
+      );
+      setTasks(prev => prev.map(task =>
+        task.id === taskId ? normaliseTask(updatedTask) : task
+      ));
+      if (selectedTask?.id === taskId) {
+        setSelectedTask(normaliseTask(updatedTask));
+      }
+      toast({ title: "Success", description: "Status updated successfully." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Status update failed", variant: "destructive" });
+    }
+  };
+
+  /* ------------ delete task -------------- */
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm("Are you sure you want to delete this task?")) return;
+    try {
+      await apiFetch(`/tasks/${taskId}/`, { method: "DELETE" }, token);
+      setTasks(prev => prev.filter(task => task.id !== taskId));
+      if (selectedTask?.id === taskId) {
+        setDetailDialogOpen(false);
+        setSelectedTask(null);
+      }
+      toast({ title: "Success", description: "Task deleted successfully." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Delete failed", variant: "destructive" });
+    }
+  };
+
+  /* ------------ open task details ---------- */
+  const openTaskDetails = (task: Task) => {
+    setSelectedTask(task);
+    setDetailDialogOpen(true);
   };
 
   /* ---------------------------- JSX ------------------------ */
   return (
     <DashboardLayout>
       <div className="space-y-4">
-        <div className="flex justify-between">
-          <h2 className="text-3xl font-bold">Tasks</h2>
-          <Button
-            disabled={!canAssign}
-            onClick={() => setDialogOpen(true)}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Create Task
-          </Button>
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-3xl font-bold">Tasks</h2>
+            <p className="text-muted-foreground">
+              {user?.role === UserRole.APPLICATION_ADMIN
+                ? "Manage all tasks across the system"
+                : user?.role === UserRole.COMPANY_ADMIN
+                ? "Manage tasks within your company"
+                : "View and update your assigned tasks"
+              }
+            </p>
+          </div>
+          {canCreate && (
+            <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Create Task
+            </Button>
+          )}
         </div>
 
-        {/* ---------------- Table Card ---------------- */}
         <Card>
           <CardHeader>
             <CardTitle>Task Management</CardTitle>
@@ -248,10 +320,10 @@ const Tasks = () => {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <FilterIcon className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">Filter:</span>
-                {['All', 'pending', 'in-progress', 'completed'].map((s) => (
+                {['All', 'pending', 'in-progress', 'completed', 'cancelled'].map((s) => (
                   <Button
                     key={s}
                     size="sm"
@@ -260,7 +332,7 @@ const Tasks = () => {
                     }
                     onClick={() => setStatusFilter(s === 'All' ? null : (s as any))}
                   >
-                    {s[0].toUpperCase() + s.slice(1)}
+                    {s.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')}
                   </Button>
                 ))}
               </div>
@@ -269,9 +341,12 @@ const Tasks = () => {
             {/* table */}
             <div className="rounded-md border overflow-auto">
               <table className="w-full text-sm">
-                <thead className="border-b">
+                <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="px-4 py-3 text-left">Title</th>
+                    {user?.role === UserRole.APPLICATION_ADMIN && (
+                      <th className="px-4 py-3 text-left">Assigned To</th>
+                    )}
                     <th className="px-4 py-3 text-left">Deadline</th>
                     <th className="px-4 py-3 text-left">Priority</th>
                     <th className="px-4 py-3 text-left">Status</th>
@@ -280,38 +355,45 @@ const Tasks = () => {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center">
-                        Loading...
-                      </td>
-                    </tr>
+                    <tr><td colSpan={6} className="px-4 py-6 text-center">Loading...</td></tr>
                   ) : visibleTasks.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                        No tasks found
-                      </td>
-                    </tr>
+                    <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">No tasks found</td></tr>
                   ) : (
                     visibleTasks.map((t) => (
-                      <tr
-                        key={t.id}
-                        className="border-b hover:bg-muted/50 transition-colors"
-                      >
+                      <tr key={t.id} className="border-b hover:bg-muted/50 transition-colors">
                         <td className="px-4 py-3">
                           <p className="font-medium">{t.title}</p>
-                          <p className="text-xs text-muted-foreground">{t.description}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">{t.description}</p>
                         </td>
-                        <td className="px-4 py-3">{t.deadline}</td>
+                        {user?.role === UserRole.APPLICATION_ADMIN && (
+                          <td className="px-4 py-3 text-sm">{t.assignee_name || `User ${t.assignee_id}`}</td>
+                        )}
                         <td className="px-4 py-3">
-                          <PriorityBadge p={t.priority} />
+                          <div className="flex flex-col">
+                            <span>{new Date(t.deadline).toLocaleDateString()}</span>
+                            {new Date(t.deadline) < new Date() && t.status !== 'completed' && (
+                              <span className="text-xs text-red-500 font-medium">Overdue</span>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <StatusBadge s={t.status} />
-                        </td>
+                        <td className="px-4 py-3"><PriorityBadge p={t.priority} /></td>
+                        <td className="px-4 py-3"><StatusBadge s={t.status} /></td>
                         <td className="px-4 py-3 text-right">
-                          <Button variant="outline" size="sm">
-                            View
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openTaskDetails(t)}>
+                              View
+                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteTask(t.id)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -322,23 +404,21 @@ const Tasks = () => {
           </CardContent>
         </Card>
 
-        {/* ---------------- Create Task Dialog -------------- */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Create Task Dialog */}
+        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle>Create New Task</DialogTitle>
-              <DialogDescription>
-                Assign a task to a company or dealer employee.
-              </DialogDescription>
+              <DialogDescription>Assign a task to a company employee.</DialogDescription>
             </DialogHeader>
-
-            <div className="space-y-4 py-4">
+            <form onSubmit={handleCreate} className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="title">Task Title *</Label>
                 <Input
                   id="title"
                   value={draft.title}
-                  onChange={({ target }) => setDraft((d) => ({ ...d, title: target.value }))}
+                  onChange={({ target }) => setDraft(d => ({ ...d, title: target.value }))}
+                  placeholder="Enter task title"
                 />
               </div>
               <div className="space-y-2">
@@ -347,9 +427,8 @@ const Tasks = () => {
                   id="desc"
                   rows={3}
                   value={draft.description}
-                  onChange={({ target }) =>
-                    setDraft((d) => ({ ...d, description: target.value }))
-                  }
+                  onChange={({ target }) => setDraft(d => ({ ...d, description: target.value }))}
+                  placeholder="Describe the task in detail..."
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -359,25 +438,20 @@ const Tasks = () => {
                     id="deadline"
                     type="date"
                     value={draft.deadline}
-                    onChange={({ target }) =>
-                      setDraft((d) => ({ ...d, deadline: target.value }))
-                    }
+                    onChange={({ target }) => setDraft(d => ({ ...d, deadline: target.value }))}
+                    min={new Date().toISOString().split('T')[0]}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Priority *</Label>
                   <Select
                     value={draft.priority}
-                    onValueChange={(v) => setDraft((d) => ({ ...d, priority: v as any }))}
+                    onValueChange={(v) => setDraft(d => ({ ...d, priority: v as any }))}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Priority" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger>
                     <SelectContent>
                       {['low', 'medium', 'high', 'urgent'].map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p[0].toUpperCase() + p.slice(1)}
-                        </SelectItem>
+                        <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -387,25 +461,102 @@ const Tasks = () => {
                 <Label>Assign To *</Label>
                 <Select
                   value={draft.assignee_id}
-                  onValueChange={(v) => setDraft((d) => ({ ...d, assignee_id: v }))}
+                  onValueChange={(v) => setDraft(d => ({ ...d, assignee_id: v }))}
+                  disabled={employeesLoading}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select assignee" />
+                    <SelectValue placeholder={employeesLoading ? "Loading employees..." : "Select employee"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="3">Company Employee</SelectItem>
-                    <SelectItem value="5">Dealer Employee</SelectItem>
+                    {employees.map((emp) => (
+                      <SelectItem key={emp.id} value={String(emp.id)}>
+                        {emp.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+                <Button type="submit">Create Task</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreate}>Create Task</Button>
-            </DialogFooter>
+        {/* Task Detail Dialog */}
+        <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            {selectedTask && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    {selectedTask.title}
+                    <PriorityBadge p={selectedTask.priority} />
+                  </DialogTitle>
+                  <DialogDescription>
+                    Created on {new Date(selectedTask.created_at).toLocaleDateString()}
+                    {selectedTask.assignee_name && ` • Assigned to ${selectedTask.assignee_name}`}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div>
+                    <h4 className="font-medium mb-2">Description</h4>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                      {selectedTask.description}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Deadline</Label>
+                      <p className={`text-sm ${
+                        new Date(selectedTask.deadline) < new Date() && selectedTask.status !== 'completed'
+                          ? 'text-red-500 font-medium'
+                          : ''
+                      }`}>
+                        {new Date(selectedTask.deadline).toLocaleDateString()}
+                        {new Date(selectedTask.deadline) < new Date() && selectedTask.status !== 'completed' && ' (Overdue)'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Current Status</Label>
+                      <StatusBadge s={selectedTask.status} />
+                    </div>
+                  </div>
+                  {/* Status update for assignee */}
+                  {selectedTask.assignee_id === String(user?.id) && (
+                    <div className="space-y-2">
+                      <Label>Update Status</Label>
+                      <Select
+                        value={selectedTask.status}
+                        onValueChange={(value: Task["status"]) => handleStatusChange(selectedTask.id, value)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {['pending', 'in-progress', 'completed', 'cancelled'].map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  {canDelete && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDeleteTask(selectedTask.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete
+                    </Button>
+                  )}
+                  <Button onClick={() => setDetailDialogOpen(false)}>Close</Button>
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>

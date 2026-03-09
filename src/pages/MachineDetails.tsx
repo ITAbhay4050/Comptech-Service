@@ -1,10 +1,11 @@
-
-import { useParams, useNavigate } from 'react-router-dom';
-import DashboardLayout from '@/components/Layout/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import DashboardLayout from "@/components/Layout/DashboardLayout";
+import { useAuth } from "@/context/AuthContext";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { 
   ArrowLeft, 
   Package, 
@@ -16,105 +17,127 @@ import {
   CheckCircle2, 
   Clock, 
   AlertCircle,
-  History
-} from 'lucide-react';
+  History,
+  Building,
+  Phone,
+  FileDigit,
+  Hash
+} from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
 
-// Mock data for machine details and history
-const mockMachineDetails = {
-  '1': {
-    id: '1',
-    model: 'CLX-5000 Standard',
-    serialNumber: 'CLX5000-12345-AB',
-    batchNumber: 'BTH-2024-001',
-    invoiceNumber: 'INV-2024-0001',
-    purchaseDate: '2024-01-15',
-    installationDate: '2023-05-15',
-    installedById: '3',
-    installedBy: 'John Smith',
-    location: '123 Main St, New York, NY',
-    notes: 'Installed without issues',
-    status: 'installed',
-    condition: 'Excellent',
-    dealerName: 'TechSolutions Inc.',
-    companyName: 'ABC Manufacturing',
-    serviceHistory: [
-      {
-        id: 'srv1',
-        date: '2023-08-15',
-        type: 'Routine Maintenance',
-        technician: 'Mike Johnson',
-        description: 'Regular maintenance check and cleaning',
-        partsReplaced: ['Air Filter', 'Oil Filter'],
-        notes: 'All systems functioning normally',
-        status: 'completed'
-      },
-      {
-        id: 'srv2',
-        date: '2023-11-20',
-        type: 'Repair',
-        technician: 'Sarah Wilson',
-        description: 'Fixed hydraulic pump issue',
-        partsReplaced: ['Hydraulic Pump', 'Seal Kit'],
-        notes: 'Pump was making unusual noise, replaced with new unit',
-        status: 'completed'
-      }
-    ]
-  },
-  '2': {
-    id: '2',
-    model: 'RVX-300 Advanced',
-    serialNumber: 'RVX300-67890-CD',
-    batchNumber: 'BTH-2024-002',
-    invoiceNumber: 'INV-2024-0002',
-    purchaseDate: '2024-01-20',
-    installationDate: '2023-06-22',
-    installedById: '3',
-    installedBy: 'John Smith',
-    location: '456 Park Ave, Los Angeles, CA',
-    notes: 'Client requested additional training',
-    status: 'installed',
-    condition: 'Good',
-    dealerName: 'WestCoast Equipment',
-    companyName: 'XYZ Industries',
-    serviceHistory: [
-      {
-        id: 'srv3',
-        date: '2023-09-10',
-        type: 'Software Update',
-        technician: 'Alex Brown',
-        description: 'Updated control system firmware',
-        partsReplaced: [],
-        notes: 'Firmware updated to version 2.1.3',
-        status: 'completed'
-      }
-    ]
-  }
-};
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const API_URL = API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE;
+
+interface ServiceHistory {
+  id: string;
+  date: string;
+  type: string;
+  technician: string;
+  description: string;
+  partsReplaced: string[];
+  notes: string;
+  status: string;
+}
+
+interface MachineDetails {
+  id: string;
+  model_number?: string;
+  serial_number?: string;
+  batch_number?: string;
+  invoice_number?: string;
+  purchase_date?: string;
+  installation_date?: string;
+  installed_by?: string;
+  location?: string;
+  notes?: string;
+  status?: string;
+  condition?: string;
+  client_company_name?: string;
+  client_gst_number?: string;
+  client_contact_person?: string;
+  client_contact_phone?: string;
+  item_name?: string;
+  item_code?: string;
+  photos?: Array<{ photo: string }>;
+  service_history?: ServiceHistory[];
+}
 
 const MachineDetails = () => {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const navigate = useNavigate();
   
-  const machine = id ? mockMachineDetails[id as keyof typeof mockMachineDetails] : null;
+  const [machine, setMachine] = useState<MachineDetails | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMachineDetails = async () => {
+      if (!id || !user?.token) return;
+      
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${API_URL}/installations/${id}/`, {
+          headers: {
+            'Authorization': `Token ${user.token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            setMachine(null);
+            return;
+          }
+          throw new Error(`Failed to fetch machine details: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setMachine(data);
+      } catch (error) {
+        console.error("Error fetching machine details:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load machine details. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMachineDetails();
+  }, [id, user?.token]);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!machine) {
     return (
       <DashboardLayout>
-        <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-gray-900">Machine Not Found</h2>
-          <p className="text-gray-600 mt-2">The requested machine could not be found.</p>
-          <Button onClick={() => navigate('/machines')} className="mt-4">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Machines
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <AlertCircle className="h-16 w-16 text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Machine Not Found</h2>
+          <p className="text-muted-foreground mb-4">The machine you're looking for doesn't exist.</p>
+          <Button onClick={() => navigate("/machines")}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Machines
           </Button>
         </div>
       </DashboardLayout>
     );
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (status: string = '') => {
+    switch (status.toLowerCase()) {
       case 'installed':
+      case 'active':
+      case 'completed':
         return (
           <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
             <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -129,6 +152,7 @@ const MachineDetails = () => {
           </Badge>
         );
       case 'servicing':
+      case 'in_progress':
         return (
           <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">
             <Wrench className="h-3 w-3 mr-1" />
@@ -139,13 +163,13 @@ const MachineDetails = () => {
         return (
           <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-300">
             <AlertCircle className="h-3 w-3 mr-1" />
-            Unknown
+            {status || 'Unknown'}
           </Badge>
         );
     }
   };
 
-  const getConditionBadge = (condition: string) => {
+  const getConditionBadge = (condition: string = 'Good') => {
     const colorMap = {
       'Excellent': 'bg-green-100 text-green-800 border-green-300',
       'Good': 'bg-blue-100 text-blue-800 border-blue-300',
@@ -160,25 +184,34 @@ const MachineDetails = () => {
     );
   };
 
+  const formatDate = (dateString: string) => {
+    if (!dateString) return "N/A";
+    try {
+      return new Date(dateString).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch (error) {
+      return "Invalid Date";
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate('/machines')}
-              className="flex items-center gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Machines
+            <Button variant="outline" size="sm" onClick={() => navigate("/machines")}>
+              <ArrowLeft className="h-4 w-4 mr-2" /> Back
             </Button>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{machine.model}</h1>
-              <p className="text-muted-foreground">Serial: {machine.serialNumber}</p>
+              <h2 className="text-3xl font-bold tracking-tight">Machine Details</h2>
+              <p className="text-muted-foreground">Invoice No: {machine.invoice_number || "N/A"}</p>
             </div>
           </div>
+          
           <div className="flex items-center gap-2">
             {getStatusBadge(machine.status)}
             {getConditionBadge(machine.condition)}
@@ -190,65 +223,67 @@ const MachineDetails = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Machine Overview
+              Machine Information
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Model</label>
-                  <p className="font-medium">{machine.model}</p>
+                  <label className="text-sm font-medium text-muted-foreground">Item Name</label>
+                  <p className="font-medium">{machine.item_name || "N/A"}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Serial Number</label>
-                  <p className="font-medium">{machine.serialNumber}</p>
+                  <label className="text-sm font-medium text-muted-foreground">Item Code</label>
+                  <p className="font-medium">{machine.item_code || "N/A"}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Batch Number</label>
-                  <p className="font-medium">{machine.batchNumber}</p>
+                  <p className="font-medium flex items-center gap-2">
+                    <Hash className="h-4 w-4" />
+                    {machine.batch_number || "N/A"}
+                  </p>
                 </div>
               </div>
               
               <div className="space-y-4">
                 <div>
+                  <label className="text-sm font-medium text-muted-foreground">Invoice Number</label>
+                  <p className="font-medium flex items-center gap-2">
+                    <FileDigit className="h-4 w-4" />
+                    {machine.invoice_number || "N/A"}
+                  </p>
+                </div>
+                <div>
                   <label className="text-sm font-medium text-muted-foreground">Purchase Date</label>
                   <p className="font-medium flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    {new Date(machine.purchaseDate).toLocaleDateString()}
+                    {formatDate(machine.purchase_date || "")}
                   </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Installation Date</label>
                   <p className="font-medium flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    {new Date(machine.installationDate).toLocaleDateString()}
+                    {formatDate(machine.installation_date || "")}
                   </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Invoice Number</label>
-                  <p className="font-medium">{machine.invoiceNumber}</p>
                 </div>
               </div>
               
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Current Location</label>
-                  <p className="font-medium flex items-center gap-2">
-                    <MapPin className="h-4 w-4" />
-                    {machine.location}
-                  </p>
-                </div>
-                <div>
                   <label className="text-sm font-medium text-muted-foreground">Installed By</label>
                   <p className="font-medium flex items-center gap-2">
                     <User className="h-4 w-4" />
-                    {machine.installedBy}
+                    {machine.installed_by || "N/A"}
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Current Condition</label>
-                  <div>{getConditionBadge(machine.condition)}</div>
+                  <label className="text-sm font-medium text-muted-foreground">Location</label>
+                  <p className="font-medium flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {machine.location || "N/A"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -265,53 +300,109 @@ const MachineDetails = () => {
           </CardContent>
         </Card>
 
-        {/* Company & Dealer Information */}
+        {/* Client Information */}
         <Card>
           <CardHeader>
-            <CardTitle>Company & Dealer Information</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Building className="h-5 w-5" />
+              Client Information
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Company</label>
-                <p className="font-medium">{machine.companyName}</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Company Name</label>
+                  <p className="font-medium">{machine.client_company_name || "N/A"}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">GST Number</label>
+                  <p className="font-medium">{machine.client_gst_number || "N/A"}</p>
+                </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Dealer</label>
-                <p className="font-medium">{machine.dealerName}</p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Contact Person</label>
+                  <p className="font-medium flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    {machine.client_contact_person || "N/A"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Contact Phone</label>
+                  <p className="font-medium flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    {machine.client_contact_phone || "N/A"}
+                  </p>
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Photos */}
+        {machine.photos && machine.photos.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Installation Photos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {machine.photos.map((photo, index) => (
+                  <div key={index} className="relative group">
+                    <img
+                      src={photo.photo.startsWith('http') ? photo.photo : `${API_URL}${photo.photo}`}
+                      alt={`Installation photo ${index + 1}`}
+                      className="w-full h-48 object-cover rounded-lg border"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "https://via.placeholder.com/300";
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Service History */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
-              Service History ({machine.serviceHistory.length} records)
+              Service History
             </CardTitle>
+            <CardDescription>
+              Service records for this machine
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {machine.serviceHistory.length === 0 ? (
-              <p className="text-muted-foreground text-center py-4">No service records found</p>
+            {(!machine.service_history || machine.service_history.length === 0) ? (
+              <div className="text-center py-8">
+                <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Service History</h3>
+                <p className="text-muted-foreground">
+                  This machine hasn't had any service records yet.
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
-                {machine.serviceHistory.map((service, index) => (
-                  <div key={service.id} className="border rounded-lg p-4">
+                {machine.service_history.map((service, index) => (
+                  <div key={index} className="border rounded-lg p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h4 className="font-medium flex items-center gap-2">
                           <Wrench className="h-4 w-4" />
-                          {service.type}
+                          {service.type || "Service"}
                         </h4>
                         <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
                           <Calendar className="h-3 w-3" />
-                          {new Date(service.date).toLocaleDateString()}
+                          {formatDate(service.date)}
                         </p>
                       </div>
                       <Badge variant="outline" className="bg-green-100 text-green-800">
-                        {service.status}
+                        {service.status || "Completed"}
                       </Badge>
                     </div>
                     
@@ -320,16 +411,16 @@ const MachineDetails = () => {
                         <label className="font-medium text-muted-foreground">Technician</label>
                         <p className="flex items-center gap-2">
                           <User className="h-3 w-3" />
-                          {service.technician}
+                          {service.technician || "N/A"}
                         </p>
                       </div>
                       <div>
                         <label className="font-medium text-muted-foreground">Description</label>
-                        <p>{service.description}</p>
+                        <p>{service.description || "No description available"}</p>
                       </div>
                     </div>
                     
-                    {service.partsReplaced.length > 0 && (
+                    {service.partsReplaced && service.partsReplaced.length > 0 && (
                       <div className="mt-3">
                         <label className="font-medium text-muted-foreground text-sm">Parts Replaced</label>
                         <div className="flex flex-wrap gap-1 mt-1">

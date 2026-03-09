@@ -7,7 +7,7 @@ from django.core.validators import RegexValidator
 class Company(models.Model):
     """Registered manufacturing/servicing companies."""
 
-    gst_no = models.CharField(max_length=20)
+    gst_no = models.CharField(max_length=20) 
     name = models.CharField(max_length=255)
     address = models.TextField()
     city = models.CharField(max_length=100)
@@ -281,18 +281,13 @@ class InstallationPhoto(models.Model):
 
     def __str__(self):
         return f"Photo for {self.installation.batch_number}"
-
-
 class Task(models.Model):
-    """General task/issue tracker."""
-
     PRIORITY_CHOICES = [
         ("low", "Low"),
         ("medium", "Medium"),
         ("high", "High"),
         ("urgent", "Urgent"),
     ]
-
     STATUS_CHOICES = [
         ("pending", "Pending"),
         ("in-progress", "In Progress"),
@@ -304,20 +299,40 @@ class Task(models.Model):
     description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     deadline = models.DateField()
-
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default="medium")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-
-    assigner_id = models.CharField(max_length=100, default="user_1")
-    assignee_id = models.CharField(max_length=100, default="user_1")
-    machine_id = models.CharField(max_length=100, default="NA")
+    assigner = models.ForeignKey(
+        'Company',
+        on_delete=models.CASCADE,
+        related_name="company_tasks",
+        null=True,
+        blank=True
+    )
+    assignee = models.ForeignKey(
+        'Employee',
+        on_delete=models.CASCADE,
+        related_name="received_tasks",
+        null=True,
+        blank=True
+    )
 
     class Meta:
         ordering = ["-created_at"]
 
+    def clean(self):
+        if self.assignee and self.assigner:
+            if self.assignee.role != "COMPANY_EMPLOYEE":
+                raise ValidationError("Task can only be assigned to a Company Employee.")
+            if self.assignee.company != self.assigner:
+                raise ValidationError("Employee must belong to same company as task assigner.")
+        # Allow tasks without assignee (e.g., drafts) but warn if needed
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.title
-
 class AccountMaster(models.Model):
     """
     Model representing an external 'accountmaster' table from Munim006 DB.
@@ -338,3 +353,12 @@ class AccountMaster(models.Model):
 
     def __str__(self):
         return self.accountname
+class SalesInvoice(models.Model):
+    SalesInvoiceId = models.DecimalField(max_digits=18, decimal_places=0, primary_key=True)  # numeric
+    DocumentNo = models.IntegerField()  # int
+    DocumentDate = models.DateField()  # date
+
+    class Meta:
+        managed = False  # 👈 don't let Django create/modify this table
+        db_table = 'SalesInvoice'  # 👈 exact table name
+
