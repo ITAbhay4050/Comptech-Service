@@ -196,13 +196,9 @@ class MachineInstallationSerializer(serializers.ModelSerializer):
 # ────────────────────────────────────────────────────────────────
 
 class TaskSerializer(serializers.ModelSerializer):
-    # These fields allow the frontend to display the names of people 
-    # involved without making extra API calls.
     assignee_name = serializers.ReadOnlyField(source='assignee.name')
     assigner_name = serializers.ReadOnlyField(source='assigner.name')
     
-    # We explicitly define these to ensure the frontend can send just the ID 
-    # but the GET request returns the full name representation.
     assignee = serializers.PrimaryKeyRelatedField(
         queryset=Employee.objects.all(), 
         required=False, 
@@ -217,24 +213,13 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = [
-            'id', 
-            'title', 
-            'description', 
-            'created_at', 
-            'deadline', 
-            'priority', 
-            'status', 
-            'assigner', 
-            'assignee', 
-            'assigner_name', 
-            'assignee_name'
+            'id', 'title', 'description', 'created_at', 'deadline',
+            'priority', 'status', 'assigner', 'assignee',
+            'assigner_name', 'assignee_name'
         ]
         read_only_fields = ['id', 'created_at', 'assigner_name', 'assignee_name']
 
     def validate_deadline(self, value):
-        """
-        Check that the deadline is not in the past and not too far in the future.
-        """
         today = timezone.now().date()
         if value < today:
             raise serializers.ValidationError("Deadline cannot be in the past.")
@@ -243,27 +228,18 @@ class TaskSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """
-        Object-level validation to mirror the model's clean() method logic.
-        """
         assignee = data.get('assignee')
         assigner = data.get('assigner')
-
         if assignee and assigner:
-            # Check Role
             if assignee.role != "COMPANY_EMPLOYEE":
                 raise serializers.ValidationError({
                     "assignee": "Tasks can only be assigned to a Company Employee."
                 })
-            
-            # Check Company Belonging
             if assignee.company != assigner:
                 raise serializers.ValidationError({
                     "assignee": "This employee does not belong to the assigning company."
                 })
-                
-        return data# ────────────────────────────────────────────────────────────────
-# Employee
+        return data# Employee
 # ────────────────────────────────────────────────────────────────
 
 class EmployeeSerializer(serializers.ModelSerializer):

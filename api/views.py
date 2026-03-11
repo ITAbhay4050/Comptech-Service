@@ -343,47 +343,47 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-
         if not user.is_authenticated:
             return Task.objects.none()
-
         user_email = user.email
         employee = Employee.objects.filter(email=user_email).first()
-
         if employee:
             if employee.role == "APPLICATION_ADMIN":
                 return Task.objects.all()
-
             elif employee.role == "COMPANY_ADMIN":
                 return Task.objects.filter(
-                    models.Q(assigner=employee.company) |
-                    models.Q(assignee__company=employee.company)
+                    django_models.Q(assigner=employee.company) |
+                    django_models.Q(assignee__company=employee.company)
                 ).distinct()
-
             elif employee.role == "COMPANY_EMPLOYEE":
                 return Task.objects.filter(assignee=employee)
-
             return Task.objects.none()
-
         company = Company.objects.filter(email=user_email).first()
-
         if company:
             return Task.objects.filter(assigner=company)
-
         return Task.objects.none()
 
     def perform_create(self, serializer):
         user = self.request.user
-
-        if not user.is_authenticated:
-            return
-
         employee = Employee.objects.filter(email=user.email).first()
+        company = None
 
-        if employee and employee.role == "COMPANY_ADMIN":
-            serializer.save(assigner=employee.company)
+        if employee:
+            # For employees, the assigner should be their company
+            company = employee.company
         else:
-            serializer.save()
+            # For users logged in as Company (not as an Employee)
+            company = Company.objects.filter(email=user.email).first()
+
+        if company is None:
+            # Fallback – should not happen with proper permissions
+            # You might want to log this case
+            serializer.save()   # assigner will be null (not ideal)
+        else:
+            serializer.save(
+                assigner=company,
+                assignee=serializer.validated_data.get("assignee")
+            )
 class EmployeeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EmployeeSerializer
     authentication_classes = [TokenAuthentication]
@@ -428,15 +428,77 @@ def check_batch_unique(request):
         return Response({"error": "Batch number is required."}, status=status.HTTP_400_BAD_REQUEST)
     exists = MachineInstallation.objects.filter(batch_number__iexact=batch).exists()
     return Response({"isUnique": not exists})
-
 class GetDealerDataByBatch(APIView):
     permission_classes = [AllowAny]
+
     def get(self, request):
         batch_no = request.query_params.get("batch", "").strip()
         if not batch_no:
             return Response({"error": "Batch number is required."}, status=status.HTTP_400_BAD_REQUEST)
-        # ... (rest of external DB query as in your original code)
-        # (omitted for brevity – keep your existing implementation)
+        user = request.user
+        role = None
+        user_gst = None
+        current_employee = Employee.objects.filter(email=getattr(user, 'email', None)).first()
+        if current_employee:
+            role = current_employee.role.lower()
+            if current_employee.dealer:
+                user_gst = current_employee.dealer.gst_no
+            elif current_employee.company:
+                user_gst = current_employee.company.gst_no
+        else:
+            dealer_user = Dealer.objects.filter(email=getattr(user, 'email', None)).first()
+            if dealer_user:
+                role = 'dealer_admin'
+                user_gst = dealer_user.gst_no
+            else:
+                company_user = Company.objects.filter(email=getattr(user, 'email', None)).first()
+                if company_user:
+                    role = 'company_admin'
+                    user_gst = company_user.gst_no
+                else:
+                    return Response({"error": "Unable to determine user role or associated entity."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            with connections['munim006_db'].cursor() as cursor:
+                query = """
+                    SELECT
+                        itm.itemcode as item_code,
+                        itm.ItemName AS item_name,
+                        sibd.BatchNo AS batch_number,
+                        a.DocumentNo AS invoice_number,
+                        a.DocumentDate AS purchase_date,
+                        am.AccountName AS party_name,
+                        am.GSTNo AS gst_no
+                    FROM SalesInvoice AS a
+                    LEFT JOIN SalesInvoiceDetails AS b ON a.SalesInvoiceId = b.SalesInvoiceId
+                    LEFT JOIN ItemMaster AS itm ON itm.ItemMasterId = b.ItemMasterId
+                    LEFT JOIN SalesInvoiceBatchDetails AS sibd ON sibd.SalesInvoiceDetailsId = b.SalesInvoiceDetailsId
+                    LEFT JOIN AccountMaster AS am ON am.AccountMasterId = a.PartyAccountMasterId
+                    where 
+                    itm.ItemGroupMasterId in (2,3,5,8,10,11,12,13,14,16,29,20077,40103,40105,40107) 
+                    and  sibd.BatchNo = %s
+                """
+                cursor.execute(query, [batch_no])
+                row = cursor.fetchone()
+            if not row:
+                return Response({"error": "Machine not found for this batch number in the external database."}, status=status.HTTP_404_NOT_FOUND)
+            item_code, item_name, batch_number, invoice_number, purchase_date, party_name, party_gst = row
+            if role in ['dealer_admin', 'dealer_employee']:
+                if not user_gst:
+                    return Response({"error": "Your GST number is missing in your profile. Please update your profile or contact support."}, status=status.HTTP_400_BAD_REQUEST)
+                if user_gst.strip().upper() != (party_gst or '').strip().upper():
+                    return Response({"error": "You are not authorized to view this item's details. GST mismatch."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({
+                "item_name": item_name,
+                "item_code": item_code,
+                "batch_number": batch_number,
+                "invoice_number": invoice_number,
+                "purchase_date": purchase_date,
+                "party_name": party_name,
+                "gst_no": party_gst,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"[ERROR] Machine fetch failed from munim006_db: {e}")
+            return Response({"error": f"Internal server error while fetching external data: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -449,17 +511,34 @@ def get_machine_details_by_batch(request):
         serializer = MachineInstallationSerializer(machine)
         return Response(serializer.data, status=status.HTTP_200_OK)
     except MachineInstallation.DoesNotExist:
-        return Response({"error": "Machine not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": "Machine with this batch number does not exist in the internal database."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        print(f"[ERROR] Internal machine fetch failed: {e}")
+        return Response({"error": f"Internal server error while fetching machine details: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class GetPartyDetailsByGST(APIView):
-    permission_classes = [IsAuthenticated]
+    """
+    Retrieves party details from munim006_db based on GST number.
+    This is intended for fetching data for pre-filling forms.
+    """
+    permission_classes = [IsAuthenticated] # Changed to IsAuthenticated as it's sensitive data
+
     def get(self, request):
-        gst_no = request.query_params.get('gst_no')
+        gst_no = request.query_params.get('gst_no', None)
         if not gst_no:
             return Response({"error": "GST number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
+            # Fetching from munim006_db using the Django ORM with .using()
             account_data = AccountMaster.objects.using('munim006_db').get(gstno=gst_no)
+            
+            # Use the serializer to get the data, which respects the fields defined in AccountMasterSerializer
             serializer = AccountMasterSerializer(account_data)
-            return Response(serializer.data)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
         except AccountMaster.DoesNotExist:
-            return Response({"error": "No data found for this GST."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "No data found for this GST number in the external database."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            print(f"Error fetching party details by GST from munim006_db: {e}")
+            return Response({"error": f"Internal server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

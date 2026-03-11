@@ -29,24 +29,20 @@ class MachineInstallationAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-
-    list_display = ("title", "deadline", "priority", "status", "assigner", "assignee")
-    search_fields = ("title", "description", "status", "priority")
-    list_filter = ("priority", "status", "assigner")
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-
-        # 🔥 Assigner dropdown me sirf Company model
-        if db_field.name == "assigner":
-            kwargs["queryset"] = Company.objects.all()
-
-        # 🔥 Assignee dropdown me sirf Company Employee
-        if db_field.name == "assignee":
-            kwargs["queryset"] = Employee.objects.filter(
-                role="COMPANY_EMPLOYEE"
-            )
-
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    list_display = (
+        'title',
+        'deadline',
+        'priority',
+        'status',
+        'assigner',      # shows company name via __str__
+        'assignee',      # shows employee name via __str__
+        'created_at',
+    )
+    list_filter = ('priority', 'status', 'deadline')
+    search_fields = ('title', 'description', 'assigner__name', 'assignee__name')
+    raw_id_fields = ('assigner', 'assignee')   # better for large datasets
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at',)
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     list_display = ("name", "email", "phone", "role_display", 

@@ -85,7 +85,7 @@ const normaliseTask = (t: any): Task => ({
 });
 
 /* ------------------------------------------------------------------ */
-/* Badges                                                             */
+/* Badges                                                                 */
 /* ------------------------------------------------------------------ */
 const PriorityBadge = ({ p }: { p: Task["priority"] }) => {
   const map = {
@@ -213,32 +213,39 @@ const visibleTasks = tasks.filter((t) => {
 
   return hitsSearch && hitsStatus;
 });  /* --------------- create task ------------- */
-  const handleCreate = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!draft.title || !draft.description || !draft.assignee_id || !draft.deadline) {
-      toast({
-        title: "Error",
-        description: "Please fill all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-    try {
-      const newTask: Task = await apiFetch(
-        "/tasks/",
-        { method: "POST", body: JSON.stringify(draft) },
-        token,
-      );
-      setTasks((prev) => [...prev, normaliseTask(newTask)]);
-      toast({ title: "Success", description: "Task created successfully." });
-      setCreateDialogOpen(false);
-      setDraft(resetDraft());
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message || "Create failed", variant: "destructive" });
-    }
-  };
+const handleCreate = async (e: FormEvent) => {
+  e.preventDefault();
+  if (!draft.title || !draft.description || !draft.assignee_id || !draft.deadline) {
+    toast({
+      title: "Error",
+      description: "Please fill all required fields",
+      variant: "destructive"
+    });
+    return;
+  }
+  try {
+    // Convert assignee_id to number (backend expects integer)
+    const payload = {
+      title: draft.title,
+      description: draft.description,
+      deadline: draft.deadline,
+      priority: draft.priority,
+      assignee: Number(draft.assignee_id)   // backend field name is 'assignee'
+    };
 
-  /* ------------ update status ------------- */
+    const newTask: Task = await apiFetch(
+      "/tasks/",
+      { method: "POST", body: JSON.stringify(payload) },
+      token,
+    );
+    setTasks((prev) => [...prev, normaliseTask(newTask)]);
+    toast({ title: "Success", description: "Task created successfully." });
+    setCreateDialogOpen(false);
+    setDraft(resetDraft());
+  } catch (e: any) {
+    toast({ title: "Error", description: e.message || "Create failed", variant: "destructive" });
+  }
+}; /* ------------ update status ------------- */
   const handleStatusChange = async (taskId: string, newStatus: Task["status"]) => {
     try {
       const updatedTask = await apiFetch(
