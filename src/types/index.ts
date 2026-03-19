@@ -15,17 +15,28 @@ export enum UserStatus {
   INACTIVE = "INACTIVE",
   PENDING  = "PENDING",
 }
+export enum TicketUrgency {
+  LOW = "low",
+  MEDIUM = "medium",
+  HIGH = "high",
+  CRITICAL = "critical",
+}
 
+export enum TicketStatus {
+  OPEN = "open",
+  IN_PROGRESS = "in_progress",   // ✅ FIXED
+  RESOLVED = "resolved",
+  CLOSED = "closed",
+}
 /* ------------------------------------------------------------------ *
  *  Core Entities
  * ------------------------------------------------------------------ */
 export interface User {
-  id: string;
+  id: number;       // Numeric ID as per backend
   name: string;
   email: string;
   role: UserRole;
 
-  /* optional / nice‑to‑have fields */
   phone?: string;
   username?: string;
   department?: string;
@@ -35,6 +46,7 @@ export interface User {
   profilePhoto?: string;
   createdAt?: string;
   lastLogin?: string;
+  token?: string;   // JWT or session token for auth
 }
 
 /* ----------  Company  ---------- */
@@ -196,4 +208,21 @@ export interface RoleAccess {
   canCreateTickets: boolean;
   canCloseTickets: boolean;
   canInstallMachines: boolean;
+}
+export interface TicketCategory {
+  id: number;
+  name: string;
+}
+
+// CreateTicketPayload Interface - payload sent for ticket creation
+
+export interface CreateTicketPayload {
+  title: string;
+  description: string;
+  category: number;
+  machine_installation: number;
+  urgency: TicketUrgency;
+  created_by: GenericForeignKeyPayload;
+  assigned_to?: GenericForeignKeyPayload | null;
+  // add other fields your backend requires
 }

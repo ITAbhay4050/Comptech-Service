@@ -2,8 +2,22 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.contrib.auth.hashers import make_password, identify_hasher
 from django.core.validators import RegexValidator
-
-
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from django.contrib.auth.hashers import make_password, identify_hasher
+from django.core.validators import RegexValidator
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey
+ALLOWED_MODELS = ['dealer', 'company', 'employee'] 
+TICKET_STATUS_CHOICES = [
+    ('open', 'Open'),
+    ('in_progress', 'In Progress'),
+    ('resolved', 'Resolved'),
+    ('closed', 'Closed'),
+]
+ALLOWED_MODELS = ['dealer', 'company', 'employee']
 class Company(models.Model):
     """Registered manufacturing/servicing companies."""
 
@@ -43,7 +57,19 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
+class Department(models.Model):
+    department_name = models.CharField(max_length=150, unique=True)
+    description = models.TextField(blank=True, null=True)
 
+    # Additional useful fields
+    department_code = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.department_name
 
 class Dealer(models.Model):
     """Dealers associated with a Company (one-to-many)."""
@@ -119,7 +145,13 @@ class Employee(models.Model):
             RegexValidator(r"^\+?1?\d{9,15}$", "Enter a valid phone number.")
         ],
     )
-    department = models.CharField(max_length=100, blank=True, null=True)
+    Department = models.ForeignKey(
+        Department,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employees"
+    )
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
     password = models.CharField(max_length=128)
     is_active = models.BooleanField(default=True)
@@ -361,4 +393,96 @@ class SalesInvoice(models.Model):
     class Meta:
         managed = False  # 👈 don't let Django create/modify this table
         db_table = 'SalesInvoice'  # 👈 exact table name
+
+class TicketCategory(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(default="General description")
+
+    def __str__(self):
+        return self.name
+
+
+# ============================== TICKET ==============================
+class ticket(models.Model):
+    title = models.CharField(max_length=100)
+    batch_number = models.CharField(max_length=100, blank=True, null=True)
+    item_name = models.CharField(max_length=255, blank=True, null=True)
+    item_code = models.CharField(max_length=100, blank=True, null=True)
+    invoice_number = models.CharField(max_length=100, blank=True, null=True)
+    purchase_date = models.DateField(blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+    description = models.TextField()
+    category = models.ForeignKey(TicketCategory, on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(max_length=100, choices=TICKET_STATUS_CHOICES, default='open')
+
+    # Created By (GenericForeignKey)
+    created_by_content_type = models.ForeignKey(
+        ContentType, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ticket_created_by_type',
+        limit_choices_to={'model__in': ALLOWED_MODELS}
+    )
+    created_by_object_id = models.PositiveIntegerField(null=True, blank=True)
+    created_by = GenericForeignKey('created_by_content_type', 'created_by_object_id')
+
+    # Assigned To (GenericForeignKey)
+    assigned_to_content_type = models.ForeignKey(
+        ContentType, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ticket_assigned_to_type',
+        limit_choices_to={'model__in': ALLOWED_MODELS}
+    )
+    assigned_to_object_id = models.PositiveIntegerField(null=True, blank=True)
+    assigned_to = GenericForeignKey('assigned_to_content_type', 'assigned_to_object_id')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True) 
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    feedback_notes = models.TextField(null=True, blank=True)
+    rating = models.PositiveIntegerField(
+        null=True, blank=True, choices=[(i, str(i)) for i in range(1, 6)]
+    )
+    URGENCY_CHOICES = [('low', 'Low'), ('medium', 'Medium'), ('high', 'High')]
+    urgency = models.CharField(max_length=20, choices=URGENCY_CHOICES, default='medium')
+
+    machine_installation = models.ForeignKey(
+        'MachineInstallation', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='tickets'
+    )
+
+    class Meta:
+        verbose_name = "Ticket"
+        verbose_name_plural = "Tickets"
+
+    def __str__(self):
+        created_by_info = getattr(self.created_by, 'name', str(self.created_by) if self.created_by else "N/A")
+        assigned_to_info = getattr(self.assigned_to, 'name', str(self.assigned_to) if self.assigned_to else "Unassigned")
+        return f"{self.title} (By: {created_by_info}, To: {assigned_to_info})"
+
+    def clean(self):
+        super().clean()
+        # Validate created_by
+        if self.created_by_content_type and not self.created_by_object_id:
+            raise ValidationError("Created by object ID is required when content type is set.")
+        if self.created_by_object_id and not self.created_by_content_type:
+            raise ValidationError("Created by object ID cannot be set without a content type.")
+        if self.created_by_content_type and self.created_by_content_type.model not in ALLOWED_MODELS:
+            raise ValidationError("Invalid created_by type.")
+
+        # Validate assigned_to
+        if self.assigned_to_content_type and not self.assigned_to_object_id:
+            raise ValidationError("Assigned to object ID is required when content type is set.")
+        if self.assigned_to_object_id and not self.assigned_to_content_type:
+            raise ValidationError("Assigned to object ID cannot be set without a content type.")
+        if self.assigned_to_content_type and self.assigned_to_content_type.model not in ALLOWED_MODELS:
+            raise ValidationError("Invalid assigned_to type.")
+
+        # Validate dates
+        if self.resolved_at and self.resolved_at > timezone.now():
+            raise ValidationError({'resolved_at': "Resolution date cannot be in the future."})
+        if self.status == 'resolved' and not self.resolved_at:
+            raise ValidationError({'status': "Resolved tickets must have a resolution date."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
 

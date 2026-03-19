@@ -5,11 +5,15 @@ from . import views
 router = DefaultRouter()
 router.register(r'tasks', views.TaskViewSet, basename='task')
 router.register(r'employees', views.EmployeeViewSet, basename='employee')
+router.register(r"ticket-categories", views.TicketCategoryViewSet)
+router.register(r"tickets", views.TicketViewSet)
+router.register(r"users", views.UserRoleViewSet, basename="user")
 
 urlpatterns = [
     # Authentication & Registration
     path("register/company/", views.RegisterCompany.as_view(), name="register_company"),
     path("companies/", views.CompanyListView.as_view(), name="company_list"),
+    path("machine-details-by-batch/", views.GetMachineDetailsByBatch.as_view(), name="machine_details_by_batch"),
     path("register/employee/", views.RegisterEmployee.as_view(), name="register_employee"),
     path("login/", views.LoginView.as_view(), name="login"),
     path("send-otp/", views.SendOTPView.as_view(), name="send_otp"),
@@ -32,6 +36,8 @@ urlpatterns = [
 
     # Party details
     path("party/get-details-by-gst/", views.GetPartyDetailsByGST.as_view(), name="get_party_details_by_gst"),
+    path("departments/", views.get_departments, name="departments"),
+    path("machine-details-by-batch/", views.GetMachineDetailsByBatch.as_view(), name="machine_details_by_batch"),
 
     # Task & Employee routers
     path("", include(router.urls)),

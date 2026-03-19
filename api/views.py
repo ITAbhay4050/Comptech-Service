@@ -12,18 +12,22 @@ from django.contrib.auth.models import User as AuthUser
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.db import connections, models
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 from django.conf import settings
+
 
 from .models import (
     Company, Dealer, Employee, LoginRecord,
-    MachineInstallation, InstallationPhoto, Task, AccountMaster
+    MachineInstallation, InstallationPhoto, Task, AccountMaster,ticket, TicketCategory,Department
 )
 from .serializers import (
-    CompanySerializer, DealerSerializer, EmployeeSerializer,
-    MachineInstallationSerializer, TaskSerializer, AccountMasterSerializer
+    CompanySerializer, DealerSerializer, EmployeeSerializer,TicketSerializer,
+    TicketCategorySerializer,DepartmentSerializer,
+    MachineInstallationSerializer, TaskSerializer, AccountMasterSerializer,UserRoleSerializer
 )
 from .utils import generate_otp, send_otp_email
-
+from django.db.models import Q
 # -------------------------------------------------------------------
 # Helper – create dummy auth_user for DRF Token
 # -------------------------------------------------------------------
@@ -37,6 +41,9 @@ def get_or_create_auth_user(email: str) -> AuthUser:
         },
     )
     return user
+
+
+
 
 # -------------------------------------------------------------------
 # Company Registration & List
@@ -352,8 +359,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                 return Task.objects.all()
             elif employee.role == "COMPANY_ADMIN":
                 return Task.objects.filter(
-                    django_models.Q(assigner=employee.company) |
-                    django_models.Q(assignee__company=employee.company)
+                    Q(assigner=employee.company) |
+                    Q(assignee__company=employee.company)
                 ).distinct()
             elif employee.role == "COMPANY_EMPLOYEE":
                 return Task.objects.filter(assignee=employee)
@@ -542,3 +549,225 @@ class GetPartyDetailsByGST(APIView):
         except Exception as e:
             print(f"Error fetching party details by GST from munim006_db: {e}")
             return Response({"error": f"Internal server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class UserRoleViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        all_users = list(Employee.objects.all()) + list(Dealer.objects.all()) + list(Company.objects.all())
+        serializer = UserRoleSerializer(all_users, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class TicketCategoryViewSet(viewsets.ModelViewSet):
+    queryset = TicketCategory.objects.all().order_by('name')
+    serializer_class = TicketCategorySerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+class TicketViewSet(viewsets.ModelViewSet):
+    queryset = ticket.objects.all().select_related(
+        'category', 'machine_installation',
+        'created_by_content_type', 'assigned_to_content_type',
+    ).order_by('-created_at')
+
+    serializer_class = TicketSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        email = user.email
+
+        obj = None
+        user_role = None
+        user_gst = None
+
+        # ================= GET USER =================
+        if Employee.objects.filter(email=email).exists():
+            obj = Employee.objects.get(email=email)
+            user_role = obj.role
+
+            # Only for Dealer Employee
+            if user_role == "DEALER_EMPLOYEE" and obj.dealer:
+                user_gst = obj.dealer.gst_no
+
+        elif Dealer.objects.filter(email=email).exists():
+            obj = Dealer.objects.get(email=email)
+            user_role = "DEALER_ADMIN"
+            user_gst = obj.gst_no
+
+        elif Company.objects.filter(email=email).exists():
+            obj = Company.objects.get(email=email)
+            user_role = "COMPANY_ADMIN"
+
+        # ================= GST VALIDATION (ONLY DEALER) =================
+        if user_role in ["DEALER_ADMIN", "DEALER_EMPLOYEE"]:
+            # Removed machine_installation requirement – it's now optional for everyone
+            machine = serializer.validated_data.get("machine_installation")
+            if machine:
+                machine_gst = getattr(machine, "gst_no", None)
+                if not machine_gst:
+                    raise serializers.ValidationError(
+                        {"gst": "Machine GST not found."}
+                    )
+                if not user_gst:
+                    raise serializers.ValidationError(
+                        {"gst": "Your GST number is not available."}
+                    )
+                if user_gst.strip().upper() != machine_gst.strip().upper():
+                    raise serializers.ValidationError(
+                        {"gst": "GST mismatch. You are not allowed to create this ticket."}
+                    )
+        # ================= SAVE =================
+        if obj:
+            serializer.save(
+                created_by_content_type=ContentType.objects.get_for_model(obj),
+                created_by_object_id=obj.pk
+            )
+        else:
+            serializer.save()
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+
+        if user.is_superuser:
+            return qs
+
+        email = user.email
+
+        if Employee.objects.filter(email=email).exists():
+            emp = Employee.objects.get(email=email)
+            return qs.filter(assigned_to_object_id=emp.pk)
+
+        elif Dealer.objects.filter(email=email).exists():
+            dealer = Dealer.objects.get(email=email)
+            return qs.filter(created_by_object_id=dealer.pk)
+
+        elif Company.objects.filter(email=email).exists():
+            company = Company.objects.get(email=email)
+            return qs.filter(created_by_object_id=company.pk)
+
+        return qs.none()
+
+
+@api_view(["GET"])
+def get_departments(request):
+    departments = Department.objects.filter(is_active=True)
+    serializer = DepartmentSerializer(departments, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
+def get_tickets(request):
+    employee = request.user.employee   # assuming user linked with employee
+    if not employee.Department or employee.Department.department_name != "Service":
+        return Response(
+            {"error": "You are not allowed to access tickets."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    tickets = ticket.objects.all()
+    serializer = TicketSerializer(tickets, many=True)
+    return Response(serializer.data)
+
+
+class GetMachineDetailsByBatch(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        batch_no = request.query_params.get('batch', '').strip()
+        if not batch_no:
+            return Response(
+                {"error": "Batch number is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = request.user
+        email = user.email
+
+        user_role = None
+        dealer_gst = None
+
+        # ================= DETECT USER ROLE =================
+        if Employee.objects.filter(email=email).exists():
+            emp = Employee.objects.get(email=email)
+            user_role = emp.role
+            if user_role == "DEALER_EMPLOYEE" and emp.dealer:
+                dealer_gst = emp.dealer.gst_no
+
+        elif Dealer.objects.filter(email=email).exists():
+            dealer = Dealer.objects.get(email=email)
+            user_role = "DEALER_ADMIN"
+            dealer_gst = dealer.gst_no
+
+        elif Company.objects.filter(email=email).exists():
+            company = Company.objects.get(email=email)
+            user_role = "COMPANY_ADMIN"
+
+        # ================= FETCH FROM DATABASE =================
+        try:
+            with connections['munim006_db'].cursor() as cursor:
+                query = """
+                    SELECT
+                        itm.ItemCode AS item_code,
+                        b.Remarks,
+                        itm.ItemName AS item_name,
+                        sibd.BatchNo AS batch_number,
+                        a.DocumentNo AS invoice_number,
+                        a.DocumentDate AS purchase_date,
+                        am.AccountName AS party_name,
+                        am.GSTNo AS gst_no
+                    FROM SalesInvoice AS a
+                    LEFT JOIN SalesInvoiceDetails AS b ON a.SalesInvoiceId = b.SalesInvoiceId
+                    LEFT JOIN ItemMaster AS itm ON itm.ItemMasterId = b.ItemMasterId
+                    LEFT JOIN SalesInvoiceBatchDetails AS sibd ON sibd.SalesInvoiceDetailsId = b.SalesInvoiceDetailsId
+                    LEFT JOIN AccountMaster AS am ON am.AccountMasterId = a.PartyAccountMasterId
+                    WHERE
+                        itm.ItemGroupMasterId IN (2,3,5,8,10,11,12,13,14,16,29,20077,40103,40105,40107)
+                        AND sibd.BatchNo = %s
+                """
+                cursor.execute(query, [batch_no])
+                row = cursor.fetchone()
+
+            if not row:
+                return Response(
+                    {"error": "Batch number not found in Munim database."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            (
+                item_code, remarks, item_name, batch_number,
+                invoice_number, purchase_date, party_name, gst_no
+            ) = row
+
+            # ================= GST VALIDATION ONLY FOR DEALERS =================
+            if user_role in ["DEALER_ADMIN", "DEALER_EMPLOYEE"]:
+                if not dealer_gst:
+                    return Response(
+                        {"error": "Your GST number is not available."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if not gst_no or gst_no.strip().upper() != dealer_gst.strip().upper():
+                    return Response(
+                        {"error": "GST mismatch – you are not authorized to view this batch."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+            # ================= SUCCESS RESPONSE =================
+            return Response({
+                "item_code": item_code,
+                "remarks": remarks,
+                "item_name": item_name,
+                "batch_number": batch_number,
+                "invoice_number": invoice_number,
+                "purchase_date": purchase_date,
+                "party_name": party_name,
+                "gst_no": gst_no,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Database error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
