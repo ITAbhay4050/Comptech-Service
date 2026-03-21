@@ -46,7 +46,8 @@ export interface User {
   profilePhoto?: string;
   createdAt?: string;
   lastLogin?: string;
-  token?: string;   // JWT or session token for auth
+  token?: string; 
+  company_name?: string;   // JWT or session token for auth
 }
 
 /* ----------  Company  ---------- */
@@ -195,6 +196,22 @@ export interface Ticket {
   dealerId?: string;
   createdAt?: string;
 }
+export interface GenericForeignKeyPayload {
+  content_type: string;
+  object_id: number;
+}
+
+export interface MachineDetailsResponse {
+  item_name: string;
+  item_code: string;
+  invoice_number: string;
+  purchase_date: string;
+  remarks?: string;
+  batch_number?: string;
+  vin?: string;
+  party_name?: string;
+  gst_no?: string;
+}
 
 /* ------------------------------------------------------------------ *
  *  Access‑control helper
@@ -220,9 +237,15 @@ export interface CreateTicketPayload {
   title: string;
   description: string;
   category: number;
-  machine_installation: number;
+  batch_number?: string;
+  vin?: string;
+  item_name?: string;
+  item_code?: string;
+  invoice_number?: string;
+  purchase_date?: string;
+  remarks?: string;
   urgency: TicketUrgency;
   created_by: GenericForeignKeyPayload;
   assigned_to?: GenericForeignKeyPayload | null;
-  // add other fields your backend requires
+  machine_installation?: number | null;
 }

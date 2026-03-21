@@ -26,6 +26,7 @@ ALLOWED_HOSTS: list[str] = [host.strip() for host in os.getenv("DJ_ALLOWED_HOSTS
 # Applications
 # -----------------------------------------------------------------------------
 INSTALLED_APPS: list[str] = [
+    'jazzmin',
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -104,6 +105,17 @@ DATABASES = {
             "driver": "ODBC Driver 17 for SQL Server",
         },
     },
+     "munim010_db": {
+        "ENGINE": "mssql",
+        "NAME": "Munim010",
+        "USER": "sa",
+        "PASSWORD": "nipl@12345",
+        "HOST": "192.168.1.4",
+        "PORT": "1433",
+        "OPTIONS": {
+            "driver": "ODBC Driver 17 for SQL Server",
+        },
+    },
 }
 
 DATABASE_ROUTERS = ['api.db_routers.Munim006Router']
@@ -121,10 +133,18 @@ AUTH_PASSWORD_VALIDATORS = [
 # -----------------------------------------------------------------------------
 # Internationalisation
 # -----------------------------------------------------------------------------
+# -------------------------------------------------------------------
+# Internationalisation
+# -------------------------------------------------------------------
 LANGUAGE_CODE = "en-us"
+
+# India Timezone
 TIME_ZONE = "Asia/Kolkata"
+
 USE_I18N = True
-USE_TZ = True
+
+# 🔥 IMPORTANT FIX (for SQL Server IST setup)
+USE_TZ = False
 
 # -----------------------------------------------------------------------------
 # Static & media
@@ -188,4 +208,14 @@ LOGGING = {
         "handlers": ["console"],
         "level": "INFO",
     },
+}
+JAZZMIN_SETTINGS = {
+    "site_title": "Comptech Admin",
+    "site_header": "Comptech",
+    "site_brand": "Comptech",
+
+    "welcome_sign": "Welcome to Comptech Dashboard",
+    "copyright": "Comptech",
+    "show_ui_builder": True,
+    "user_avatar": None,
 }

@@ -4,7 +4,8 @@ import {
   TicketCategory, 
   TicketStatus, 
   CreateTicketPayload, 
-  User 
+  User,
+  MachineDetailsResponse
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
@@ -16,7 +17,7 @@ const apiClient = axios.create({
   },
 });
 
-// ================= REQUEST INTERCEPTOR =================
+// Interceptors (unchanged)
 apiClient.interceptors.request.use(
   (config) => {
     const stored = localStorage.getItem('user');
@@ -41,7 +42,6 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ================= RESPONSE INTERCEPTOR =================
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -57,19 +57,16 @@ apiClient.interceptors.response.use(
   }
 );
 
-// ================= ERROR HANDLER =================
 const handleApiError = (error: unknown): never => {
   if (axios.isAxiosError(error)) {
     if (error.response) {
       console.log("API ERROR:", error.response.data);
-
       const message =
         error.response.data?.detail ||
         error.response.data?.message ||
         error.response.data?.error ||
         error.response.statusText ||
         'Something went wrong';
-
       throw new Error(message);
     } 
     else if (error.request) {
@@ -79,28 +76,21 @@ const handleApiError = (error: unknown): never => {
       throw new Error(error.message);
     }
   }
-
   throw new Error('Unknown error');
 };
 
-// ================= COMMON RESPONSE HANDLER =================
 const extractData = (response: any) => {
   return response.data?.results || response.data;
 };
 
-// ================= HELPER =================
 const normalizeAssignedTo = (assigned: any) => {
   if (!assigned) return null;
-
   return {
-    content_type: "employee",   // ✅ FIX
+    content_type: "employee",
     object_id: Number(assigned.object_id)
   };
 };
 
-// ================= API FUNCTIONS =================
-
-// 🎯 Ticket Categories
 export const getTicketCategories = async (): Promise<TicketCategory[]> => {
   try {
     const response = await apiClient.get('/ticket-categories/');
@@ -110,7 +100,6 @@ export const getTicketCategories = async (): Promise<TicketCategory[]> => {
   }
 };
 
-// 🎯 Tickets
 export const getTickets = async (): Promise<Ticket[]> => {
   try {
     const response = await apiClient.get('/tickets/');
@@ -120,42 +109,37 @@ export const getTickets = async (): Promise<Ticket[]> => {
   }
 };
 
-// 🎯 Create Ticket (🔥 CLEAN VERSION)
-export const createTicket = async (
-  ticketData: CreateTicketPayload
-): Promise<Ticket> => {
+export const getMachineDetails = async (params: { batch?: string; vin?: string }): Promise<MachineDetailsResponse> => {
   try {
+    const query = new URLSearchParams();
+    if (params.batch) query.append('batch', params.batch);
+    if (params.vin) query.append('vin', params.vin);
+    const response = await apiClient.get(`/machine-details/?${query.toString()}`);
+    return response.data;
+  } catch (error) {
+    return handleApiError(error);
+  }
+};
 
-    console.log("Before Normalize:", ticketData);
-
-    // created_by
+export const createTicket = async (ticketData: CreateTicketPayload): Promise<Ticket> => {
+  try {
     if (ticketData.created_by) {
       ticketData.created_by = {
         content_type: ticketData.created_by.content_type,
         object_id: Number(ticketData.created_by.object_id)
       };
     }
-
-    // assigned_to
     ticketData.assigned_to = normalizeAssignedTo(ticketData.assigned_to);
-
-    // ❌ REMOVE machine_installation completely
     delete (ticketData as any).machine_installation;
-
-    // category
     ticketData.category = Number(ticketData.category);
-
-    console.log("FINAL PAYLOAD:", ticketData);
 
     const response = await apiClient.post('/tickets/', ticketData);
     return response.data;
-
   } catch (error) {
     return handleApiError(error);
   }
 };
 
-// 🎯 Update Ticket
 export const updateTicket = async (
   id: number | string,
   ticketData: Partial<CreateTicketPayload> & {
@@ -166,25 +150,17 @@ export const updateTicket = async (
   }
 ): Promise<Ticket> => {
   try {
-
     if (ticketData.assigned_to) {
       ticketData.assigned_to = normalizeAssignedTo(ticketData.assigned_to);
     }
-
-    // ❌ REMOVE machine_installation
     delete (ticketData as any).machine_installation;
-
-    console.log("UPDATE PAYLOAD:", ticketData);
-
     const response = await apiClient.patch(`/tickets/${id}/`, ticketData);
     return response.data;
-
   } catch (error) {
     return handleApiError(error);
   }
 };
 
-// 🎯 Delete Ticket
 export const deleteTicket = async (id: number | string): Promise<void> => {
   try {
     await apiClient.delete(`/tickets/${id}/`);
@@ -193,7 +169,6 @@ export const deleteTicket = async (id: number | string): Promise<void> => {
   }
 };
 
-// 🎯 Users
 export const getUsers = async (): Promise<User[]> => {
   try {
     const response = await apiClient.get('/users/');

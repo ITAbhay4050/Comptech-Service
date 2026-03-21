@@ -1,4 +1,4 @@
-# views.py (final)
+# views.py (final) – No MachineInstallation creation in GetMachineDetails
 from rest_framework import status, permissions, serializers, viewsets, generics
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import api_view, parser_classes, permission_classes
@@ -16,18 +16,18 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 from django.conf import settings
 
-
 from .models import (
     Company, Dealer, Employee, LoginRecord,
-    MachineInstallation, InstallationPhoto, Task, AccountMaster,ticket, TicketCategory,Department
+    MachineInstallation, InstallationPhoto, Task, AccountMaster, ticket, TicketCategory, Department
 )
 from .serializers import (
-    CompanySerializer, DealerSerializer, EmployeeSerializer,TicketSerializer,
-    TicketCategorySerializer,DepartmentSerializer,
-    MachineInstallationSerializer, TaskSerializer, AccountMasterSerializer,UserRoleSerializer
+    CompanySerializer, DealerSerializer, EmployeeSerializer, TicketSerializer,
+    TicketCategorySerializer, DepartmentSerializer,
+    MachineInstallationSerializer, TaskSerializer, AccountMasterSerializer, UserRoleSerializer
 )
 from .utils import generate_otp, send_otp_email
-from django.db.models import Q
+
+
 # -------------------------------------------------------------------
 # Helper – create dummy auth_user for DRF Token
 # -------------------------------------------------------------------
@@ -41,8 +41,6 @@ def get_or_create_auth_user(email: str) -> AuthUser:
         },
     )
     return user
-
-
 
 
 # -------------------------------------------------------------------
@@ -77,10 +75,12 @@ class CompanyListView(generics.ListAPIView):
     serializer_class = CompanySerializer
     permission_classes = [AllowAny]
 
+
 # -------------------------------------------------------------------
 # Dealer CRUD
 # -------------------------------------------------------------------
 class DealerListView(generics.ListCreateAPIView):
+    
     queryset = Dealer.objects.all()
     serializer_class = DealerSerializer
 
@@ -113,6 +113,7 @@ class DealerDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = DealerSerializer
     permission_classes = [IsAuthenticated]
 
+
 # -------------------------------------------------------------------
 # OTP Views
 # -------------------------------------------------------------------
@@ -143,6 +144,7 @@ class VerifyOTPView(APIView):
         cache.delete(f"otp_{email}")
         return Response({"message": "OTP verified."})
 
+
 # -------------------------------------------------------------------
 # Unified Login (Employee → Dealer → Company)
 # -------------------------------------------------------------------
@@ -161,6 +163,14 @@ class LoginView(APIView):
         emp = Employee.objects.filter(email=email).first()
         if emp:
             if check_password(password, emp.password):
+                # Determine company name
+                if emp.company:
+                    company_name = emp.company.name
+                elif emp.dealer and emp.dealer.company:
+                    company_name = emp.dealer.company.name
+                else:
+                    company_name = None
+
                 LoginRecord.objects.create(email=email, user_type="employee", success=True)
                 return Response({
                     "message": "Login successful",
@@ -171,6 +181,7 @@ class LoginView(APIView):
                     "role": emp.role,
                     "company_id": emp.company_id,
                     "dealer_id": emp.dealer_id,
+                    "company_name": company_name,
                 }, status=status.HTTP_200_OK)
             LoginRecord.objects.create(email=email, user_type="employee", success=False)
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -179,6 +190,7 @@ class LoginView(APIView):
         dealer = Dealer.objects.filter(email=email).first()
         if dealer:
             if check_password(password, dealer.password):
+                company_name = dealer.company.name if dealer.company else None
                 LoginRecord.objects.create(email=email, user_type="dealer", success=True)
                 return Response({
                     "message": "Login successful",
@@ -188,6 +200,7 @@ class LoginView(APIView):
                     "company_id": dealer.company_id,
                     "name": dealer.name,
                     "role": "DEALER_ADMIN",
+                    "company_name": company_name,
                 }, status=status.HTTP_200_OK)
             LoginRecord.objects.create(email=email, user_type="dealer", success=False)
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -204,11 +217,13 @@ class LoginView(APIView):
                     "company_id": company.id,
                     "name": company.name,
                     "role": "COMPANY_ADMIN",
+                    "company_name": company.name,
                 }, status=status.HTTP_200_OK)
             LoginRecord.objects.create(email=email, user_type="company", success=False)
             return Response({"message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
 
         return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
 
 # -------------------------------------------------------------------
 # Employee CRUD
@@ -254,6 +269,7 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = EmployeeSerializer
     permission_classes = [IsAuthenticated]
 
+
 # -------------------------------------------------------------------
 # Dealer Count Helper
 # -------------------------------------------------------------------
@@ -264,6 +280,7 @@ class DealerCountView(APIView):
         company_id = request.query_params.get("company_id")
         count = Dealer.objects.filter(company_id=company_id).count() if company_id else Dealer.objects.count()
         return Response({"dealer_count": count})
+
 
 # -------------------------------------------------------------------
 # Machine Installation Views
@@ -317,8 +334,9 @@ def create_machine_installation(request):
     serializer.save()
     return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+
 # -------------------------------------------------------------------
-# Task Management (FIXED)
+# Task Management
 # -------------------------------------------------------------------
 class IsAppAdminOrCompanyAdminForWrite(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -327,7 +345,6 @@ class IsAppAdminOrCompanyAdminForWrite(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        # Check for Employee with admin roles
         try:
             employee = Employee.objects.get(email=request.user.email)
             if employee.role in ['APPLICATION_ADMIN', 'COMPANY_ADMIN']:
@@ -335,14 +352,14 @@ class IsAppAdminOrCompanyAdminForWrite(permissions.BasePermission):
         except Employee.DoesNotExist:
             pass
 
-        # Check for Company (they can create tasks as assigners)
         try:
             company = Company.objects.get(email=request.user.email)
-            return True   # Or add further restrictions if needed
+            return True
         except Company.DoesNotExist:
             pass
 
         return False
+
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
     authentication_classes = [TokenAuthentication]
@@ -376,21 +393,18 @@ class TaskViewSet(viewsets.ModelViewSet):
         company = None
 
         if employee:
-            # For employees, the assigner should be their company
             company = employee.company
         else:
-            # For users logged in as Company (not as an Employee)
             company = Company.objects.filter(email=user.email).first()
 
         if company is None:
-            # Fallback – should not happen with proper permissions
-            # You might want to log this case
-            serializer.save()   # assigner will be null (not ideal)
+            serializer.save()
         else:
             serializer.save(
                 assigner=company,
                 assignee=serializer.validated_data.get("assignee")
             )
+
 class EmployeeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EmployeeSerializer
     authentication_classes = [TokenAuthentication]
@@ -402,23 +416,22 @@ class EmployeeViewSet(viewsets.ReadOnlyModelViewSet):
         if not user.is_authenticated:
             return Employee.objects.none()
 
-        # APPLICATION ADMIN
         employee = Employee.objects.filter(email=user.email).first()
         if employee and employee.role == "APPLICATION_ADMIN":
             return Employee.objects.filter(role="COMPANY_EMPLOYEE")
 
-        # COMPANY ADMIN
         company = Company.objects.filter(email=user.email).first()
         if company:
             return Employee.objects.filter(company=company, role="COMPANY_EMPLOYEE")
 
-        # COMPANY EMPLOYEE
         if employee and employee.role == "COMPANY_ADMIN":
             return Employee.objects.filter(company=employee.company, role="COMPANY_EMPLOYEE")
 
         return Employee.objects.none()
+
+
 # -------------------------------------------------------------------
-# Utility endpoints (batch checks, etc.)
+# Utility endpoints
 # -------------------------------------------------------------------
 @api_view(["GET"])
 @permission_classes([AllowAny])
@@ -435,6 +448,7 @@ def check_batch_unique(request):
         return Response({"error": "Batch number is required."}, status=status.HTTP_400_BAD_REQUEST)
     exists = MachineInstallation.objects.filter(batch_number__iexact=batch).exists()
     return Response({"isUnique": not exists})
+
 class GetDealerDataByBatch(APIView):
     permission_classes = [AllowAny]
 
@@ -525,11 +539,7 @@ def get_machine_details_by_batch(request):
 
 
 class GetPartyDetailsByGST(APIView):
-    """
-    Retrieves party details from munim006_db based on GST number.
-    This is intended for fetching data for pre-filling forms.
-    """
-    permission_classes = [IsAuthenticated] # Changed to IsAuthenticated as it's sensitive data
+    permission_classes = [AllowAny]
 
     def get(self, request):
         gst_no = request.query_params.get('gst_no', None)
@@ -537,13 +547,9 @@ class GetPartyDetailsByGST(APIView):
             return Response({"error": "GST number is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Fetching from munim006_db using the Django ORM with .using()
             account_data = AccountMaster.objects.using('munim006_db').get(gstno=gst_no)
-            
-            # Use the serializer to get the data, which respects the fields defined in AccountMasterSerializer
             serializer = AccountMasterSerializer(account_data)
             return Response(serializer.data, status=status.HTTP_200_OK)
-            
         except AccountMaster.DoesNotExist:
             return Response({"error": "No data found for this GST number in the external database."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
@@ -586,8 +592,6 @@ class TicketViewSet(viewsets.ModelViewSet):
         if Employee.objects.filter(email=email).exists():
             obj = Employee.objects.get(email=email)
             user_role = obj.role
-
-            # Only for Dealer Employee
             if user_role == "DEALER_EMPLOYEE" and obj.dealer:
                 user_gst = obj.dealer.gst_no
 
@@ -600,24 +604,18 @@ class TicketViewSet(viewsets.ModelViewSet):
             obj = Company.objects.get(email=email)
             user_role = "COMPANY_ADMIN"
 
-        # ================= GST VALIDATION (ONLY DEALER) =================
+        # ================= GST VALIDATION (only if machine_installation is provided) =================
         if user_role in ["DEALER_ADMIN", "DEALER_EMPLOYEE"]:
-            # Removed machine_installation requirement – it's now optional for everyone
             machine = serializer.validated_data.get("machine_installation")
             if machine:
                 machine_gst = getattr(machine, "gst_no", None)
                 if not machine_gst:
-                    raise serializers.ValidationError(
-                        {"gst": "Machine GST not found."}
-                    )
+                    raise serializers.ValidationError({"gst": "Machine GST not found."})
                 if not user_gst:
-                    raise serializers.ValidationError(
-                        {"gst": "Your GST number is not available."}
-                    )
+                    raise serializers.ValidationError({"gst": "Your GST number is not available."})
                 if user_gst.strip().upper() != machine_gst.strip().upper():
-                    raise serializers.ValidationError(
-                        {"gst": "GST mismatch. You are not allowed to create this ticket."}
-                    )
+                    raise serializers.ValidationError({"gst": "GST mismatch. You are not allowed to create this ticket."})
+
         # ================= SAVE =================
         if obj:
             serializer.save(
@@ -660,7 +658,7 @@ def get_departments(request):
 
 @api_view(["GET"])
 def get_tickets(request):
-    employee = request.user.employee   # assuming user linked with employee
+    employee = request.user.employee
     if not employee.Department or employee.Department.department_name != "Service":
         return Response(
             {"error": "You are not allowed to access tickets."},
@@ -671,103 +669,188 @@ def get_tickets(request):
     return Response(serializer.data)
 
 
-class GetMachineDetailsByBatch(APIView):
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db import connections
+from .models import Company, Dealer, Employee, MachineInstallation
+
+
+class GetMachineDetails(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        batch_no = request.query_params.get('batch', '').strip()
-        if not batch_no:
-            return Response(
-                {"error": "Batch number is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        batch = request.query_params.get('batch', '').strip()
+        vin = request.query_params.get('vin', '').strip().upper()
         user = request.user
         email = user.email
 
-        user_role = None
-        dealer_gst = None
-
-        # ================= DETECT USER ROLE =================
+        # ================= GET COMPANY =================
+        company = None
         if Employee.objects.filter(email=email).exists():
             emp = Employee.objects.get(email=email)
-            user_role = emp.role
-            if user_role == "DEALER_EMPLOYEE" and emp.dealer:
-                dealer_gst = emp.dealer.gst_no
+            company = emp.company or (emp.dealer.company if emp.dealer else None)
 
         elif Dealer.objects.filter(email=email).exists():
             dealer = Dealer.objects.get(email=email)
-            user_role = "DEALER_ADMIN"
-            dealer_gst = dealer.gst_no
+            company = dealer.company
 
         elif Company.objects.filter(email=email).exists():
             company = Company.objects.get(email=email)
-            user_role = "COMPANY_ADMIN"
 
-        # ================= FETCH FROM DATABASE =================
+        if not company:
+            return Response({"error": "Company not found for user."}, status=403)
+
+        company_name = company.name.lower()
+
+        # ================= ROUTING =================
+        if "comptech equipments limited" in company_name:
+            if not batch:
+                return Response({"error": "Batch number required."}, status=400)
+            return self._fetch_equipment(batch, company)
+
+        elif "comptech motocorp private limited" in company_name:
+            if not vin:
+                return Response({"error": "VIN number required."}, status=400)
+            return self._fetch_motocorp(vin, company)
+
+        # fallback
+        else:
+            if batch:
+                return self._fetch_equipment(batch, company)
+            elif vin:
+                return self._fetch_motocorp(vin, company)
+
+            return Response({"error": "Provide batch or VIN."}, status=400)
+
+    # =========================================================
+    # EQUIPMENT (Batch based) – only returns data, no DB save
+    # =========================================================
+    def _fetch_equipment(self, batch, company):
         try:
             with connections['munim006_db'].cursor() as cursor:
                 query = """
                     SELECT
-                        itm.ItemCode AS item_code,
+                        itm.ItemCode,
                         b.Remarks,
-                        itm.ItemName AS item_name,
-                        sibd.BatchNo AS batch_number,
-                        a.DocumentNo AS invoice_number,
-                        a.DocumentDate AS purchase_date,
-                        am.AccountName AS party_name,
-                        am.GSTNo AS gst_no
-                    FROM SalesInvoice AS a
-                    LEFT JOIN SalesInvoiceDetails AS b ON a.SalesInvoiceId = b.SalesInvoiceId
-                    LEFT JOIN ItemMaster AS itm ON itm.ItemMasterId = b.ItemMasterId
-                    LEFT JOIN SalesInvoiceBatchDetails AS sibd ON sibd.SalesInvoiceDetailsId = b.SalesInvoiceDetailsId
-                    LEFT JOIN AccountMaster AS am ON am.AccountMasterId = a.PartyAccountMasterId
-                    WHERE
-                        itm.ItemGroupMasterId IN (2,3,5,8,10,11,12,13,14,16,29,20077,40103,40105,40107)
-                        AND sibd.BatchNo = %s
+                        itm.ItemName,
+                        sibd.BatchNo,
+                        a.DocumentNo,
+                        a.DocumentDate,
+                        am.AccountName,
+                        am.GSTNo
+                    FROM SalesInvoice a
+                    LEFT JOIN SalesInvoiceDetails b ON a.SalesInvoiceId = b.SalesInvoiceId
+                    LEFT JOIN ItemMaster itm ON itm.ItemMasterId = b.ItemMasterId
+                    LEFT JOIN SalesInvoiceBatchDetails sibd ON sibd.SalesInvoiceDetailsId = b.SalesInvoiceDetailsId
+                    LEFT JOIN AccountMaster am ON am.AccountMasterId = a.PartyAccountMasterId
+                    WHERE itm.ItemGroupMasterId IN (2,3,5,8,10,11,12,13,14,16,29,20077,40103,40105,40107)
+                      AND sibd.BatchNo = %s
                 """
-                cursor.execute(query, [batch_no])
+                cursor.execute(query, [batch])
                 row = cursor.fetchone()
 
             if not row:
-                return Response(
-                    {"error": "Batch number not found in Munim database."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return Response({"error": "Batch not found."}, status=404)
 
-            (
-                item_code, remarks, item_name, batch_number,
-                invoice_number, purchase_date, party_name, gst_no
-            ) = row
+            item_code, remarks, item_name, batch_no, invoice_no, invoice_date, party_name, gst_no = row
 
-            # ================= GST VALIDATION ONLY FOR DEALERS =================
-            if user_role in ["DEALER_ADMIN", "DEALER_EMPLOYEE"]:
-                if not dealer_gst:
-                    return Response(
-                        {"error": "Your GST number is not available."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                if not gst_no or gst_no.strip().upper() != dealer_gst.strip().upper():
-                    return Response(
-                        {"error": "GST mismatch – you are not authorized to view this batch."},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-
-            # ================= SUCCESS RESPONSE =================
+            # 🔥 NO DATABASE SAVE – just return the data
             return Response({
                 "item_code": item_code,
                 "remarks": remarks,
                 "item_name": item_name,
-                "batch_number": batch_number,
-                "invoice_number": invoice_number,
-                "purchase_date": purchase_date,
+                "batch_number": batch_no,
+                "invoice_number": invoice_no,
+                "purchase_date": invoice_date,
                 "party_name": party_name,
                 "gst_no": gst_no,
-            }, status=status.HTTP_200_OK)
+            })
 
         except Exception as e:
-            return Response(
-                {"error": f"Database error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": str(e)}, status=500)
+
+    # =========================================================
+    # MOTOCORP (VIN based) – only returns data
+    # =========================================================
+    def _fetch_motocorp(self, vin, company):
+        try:
+            with connections['munim010_db'].cursor() as cursor:
+
+                query = """
+                SELECT * FROM (
+
+                    -- QUERY 1
+                    SELECT
+                        itm.ItemCode,
+                        itm.ItemName,
+                        si.DocumentNo,
+                        si.DocumentDate,
+                        am.AccountName,
+                        am.GSTNo,
+                        COALESCE(
+                            NULLIF(NULLIF(udf.UDF_VinNo_2116,'0'),''),
+                            NULLIF(NULLIF(udf.UDF_Vinnumber_2116,'0'),'')
+                        ) AS VinNo
+
+                    FROM SalesInvoiceBatchDetails sibd
+                    INNER JOIN SalesInvoiceDetails sid ON sid.SalesInvoiceDetailsId = sibd.SalesInvoiceDetailsId
+                    INNER JOIN SalesInvoice si ON si.SalesInvoiceId = sid.SalesInvoiceId
+                    INNER JOIN ItemMaster itm ON itm.ItemMasterId = sid.ItemMasterId
+                    INNER JOIN AccountMaster am ON am.AccountMasterId = si.PartyAccountMasterId
+                    LEFT JOIN DispatchDetails disd ON disd.DispatchDetailsId = sid.ReferenceId
+                    LEFT JOIN DispatchBatchDetails disb ON disb.DispatchDetailsId = disd.DispatchDetailsId AND disb.BatchNo = sibd.BatchNo
+                    LEFT JOIN DispatchBatchDetailsUDF udf ON udf.DispatchBatchDetailsId = disb.DispatchBatchDetailsId
+
+                    WHERE itm.ItemGroupMasterId IN (110110,110108,110107,110102,110103,110115)
+
+                    UNION
+
+                    -- QUERY 2
+                    SELECT
+                        itm.ItemCode,
+                        itm.ItemName,
+                        si.DocumentNo,
+                        si.DocumentDate,
+                        am.AccountName,
+                        am.GSTNo,
+                        COALESCE(
+                            NULLIF(NULLIF(udf.UDF_VinNo_2116,'0'),''),
+                            NULLIF(NULLIF(udf.UDF_Vinnumber_2116,'0'),'')
+                        ) AS VinNo
+
+                    FROM DispatchBatchDetails disb
+                    INNER JOIN DispatchDetails disd ON disd.DispatchDetailsId = disb.DispatchDetailsId
+                    INNER JOIN Dispatch dis ON dis.DispatchId = disd.DispatchId
+                    LEFT JOIN SalesInvoiceDetails sid ON sid.ReferenceId = disd.DispatchDetailsId
+                    LEFT JOIN SalesInvoice si ON si.SalesInvoiceId = sid.SalesInvoiceId
+                    LEFT JOIN AccountMaster am ON am.AccountMasterId = si.PartyAccountMasterId
+                    INNER JOIN ItemMaster itm ON itm.ItemMasterId = sid.ItemMasterId
+                    LEFT JOIN DispatchBatchDetailsUDF udf ON udf.DispatchBatchDetailsId = disb.DispatchBatchDetailsId
+
+                    WHERE itm.ItemGroupMasterId IN (110110,110108,110107,110102,110103,110115)
+
+                ) AS FinalData
+                WHERE VinNo = %s
+                """
+
+                cursor.execute(query, [vin])
+                row = cursor.fetchone()
+
+            if not row:
+                return Response({"error": "VIN not found."}, status=404)
+
+            item_code, item_name, invoice_no, invoice_date, party_name, gst_no, vin_no = row
+
+            return Response({
+                "item_code": item_code,
+                "item_name": item_name,
+                "invoice_number": invoice_no,
+                "purchase_date": invoice_date,
+                "vin": vin_no,
+                "party_name": party_name,
+                "gst_no": gst_no,
+            })
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)

@@ -1,220 +1,139 @@
 """
 serializers.py — DRF serializers for Comptech Equipment Ltd.
-Updated 22 July 2025: added update() methods for Employee & Dealer, minor clean‑ups.
+Updated with proper ItemMaster joins for dealer GST validation.
 """
-from datetime import timedelta
 from datetime import timedelta
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from rest_framework import serializers
-
-from django.contrib.auth.hashers import make_password
-from django.utils import timezone
-from rest_framework import serializers
-_SENTINEL = object()
+from django.db import connections
 
 from .models import (
     Company,
     Dealer,
     MachineInstallation,
     InstallationPhoto,
-    Task,Department,
-    Employee,TicketCategory,ticket,
-    AccountMaster, # <--- Import AccountMaster
+    Task,
+    Department,
+    Employee,
+    TicketCategory,
+    ticket,
+    AccountMaster,
 )
 
 # ────────────────────────────────────────────────────────────────
-# Company & Dealer
+# Company & Dealer (unchanged)
 # ────────────────────────────────────────────────────────────────
 
 class CompanySerializer(serializers.ModelSerializer):
-    """CRUD for a *Company* (manufacturer/servicing firm)."""
-
-    # Never reveal the hashed password; only allow it on writes.
     password = serializers.CharField(write_only=True)
 
     class Meta:
         model = Company
         fields = "__all__"
-        extra_kwargs = {
-            'password': {'write_only': True}
-        }
+        extra_kwargs = {'password': {'write_only': True}}
+
 
 class DealerSerializer(serializers.ModelSerializer):
-    """CRUD + extra validation for *Dealer* (linked to a Company)."""
-
     company_name = serializers.CharField(source="company.name", read_only=True)
-    # Helper flag coming from your React UI (won’t be stored in DB)
     isDirect = serializers.BooleanField(write_only=True, required=False)
-    # Write‑only password; ensure it is always hashed before save.
     password = serializers.CharField(write_only=True)
 
     class Meta:
         model = Dealer
         fields = [
-            "id",
-            "company",
-            "company_name",
-            "name",
-            "email",
-            "phone",
-            "address",
-            "city",
-            "state",
-            "country",
-            "pin_code",
-            "gst_no",
-            "pan_no",
-            "password",
-            "created_at",
-            "isDirect",
-            "otp",            # Added missing OTP fields from model
-            "otp_created_at", # Added missing OTP fields from model
-            "is_verified",    # Added missing OTP fields from model
+            "id", "company", "company_name", "name", "email", "phone",
+            "address", "city", "state", "country", "pin_code", "gst_no",
+            "pan_no", "password", "created_at", "isDirect", "otp",
+            "otp_created_at", "is_verified",
         ]
         read_only_fields = ["id", "created_at", "company_name", "otp", "otp_created_at", "is_verified"]
 
-    # --- extra validation -------------------------------------------------
-    def validate_phone(self, value: str) -> str:
-        """Very lightweight phone check; use *phonenumbers* lib in prod."""
+    def validate_phone(self, value):
         digits = "".join(filter(str.isdigit, value))
         if len(digits) < 9 or len(digits) > 15:
             raise serializers.ValidationError("Enter a valid phone number.")
         return value
 
-    # --- life‑cycle overrides --------------------------------------------
     def create(self, validated_data):
-        # 1️⃣ discard helper flag
         validated_data.pop("isDirect", None)
-        # 2️⃣ always call super; the model’s save() hashes the password if needed
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        """Ensure password is hashed when updating."""
         password = validated_data.get("password")
         if password:
             validated_data["password"] = make_password(password)
-        # drop helper flag if present
         validated_data.pop("isDirect", None)
         return super().update(instance, validated_data)
 
 
-# NEW: Serializer for AccountMaster (external DB) - Read-only
+# ────────────────────────────────────────────────────────────────
+# AccountMaster (external DB) – read‑only
+# ────────────────────────────────────────────────────────────────
 class AccountMasterSerializer(serializers.ModelSerializer):
-    # Mapping external DB column names to more generic names if desired
-    # These 'source' attributes map to the *model field names* (not db_column names directly)
-    # The model field names themselves might be mapped to db_column names.
     name = serializers.CharField(source='accountname', read_only=True)
     gst_no = serializers.CharField(source='gstno', read_only=True)
-    # Removed source='pan_no' as it's redundant (field name is 'pan_no' and so is the source)
     pan_no = serializers.CharField(read_only=True)
 
     class Meta:
         model = AccountMaster
-        # Corrected fields: Only include fields present in the AccountMaster model.
-        # Removed 'address' and 'phone' as they are not defined in your AccountMaster model.
         fields = ['accountmasterid', 'name', 'email', 'pan_no', 'gst_no']
-        read_only_fields = fields # All fields are read-only as it's from an external managed=False DB
-
-
-
-# ────────────────────────────────────────────────────────────────
-# Machine Installation & photos
-# ────────────────────────────────────────────────────────────────
-
-class InstallationPhotoSerializer(serializers.ModelSerializer):
-    """Read‑only representation of stored installation photos."""
-
-    class Meta:
-        model = InstallationPhoto
-        fields = ["id", "photo"]  # returns URL/path only
         read_only_fields = fields
 
+
+# ────────────────────────────────────────────────────────────────
+# Machine Installation & photos (unchanged)
+# ────────────────────────────────────────────────────────────────
+class InstallationPhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InstallationPhoto
+        fields = ["id", "photo"]
+        read_only_fields = fields
+
+
 class MachineInstallationSerializer(serializers.ModelSerializer):
-    """Full serializer for machine installations with inline photo upload."""
-
-    # Nested, read‑only list of already‑saved photos
     photos = InstallationPhotoSerializer(many=True, read_only=True)
-
-    # Incoming files – not stored directly on the model
     photo_files = serializers.ListField(
-        child=serializers.ImageField(
-            max_length=5_000_000,   # 5 MB each
-            allow_empty_file=False,
-            use_url=False,
-        ),
-        write_only=True,
-        required=False,
-        help_text="JPEG/PNG ≤ 5 MB each; maximum 3 files",
+        child=serializers.ImageField(max_length=5_000_000, allow_empty_file=False, use_url=False),
+        write_only=True, required=False,
+        help_text="JPEG/PNG ≤ 5 MB each; maximum 3 files",
     )
 
     class Meta:
         model = MachineInstallation
         fields = [
-            "id",
-            "company",
-            "dealer",
-            "item_name",
-            "item_code",
-            "batch_number",
-            "invoice_number",
-            "purchase_date",
-            "client_company_name",
-            "client_gst_number",
-            "client_contact_person",
-            "client_contact_phone",
-            "installation_date",
-            "installed_by",
-            "location",
-            "notes",
-            "submitted_by", # Changed from submitted_by_id to submitted_by for ForeignKey
-            "submitted_by_role",
-            "submitted_by_name",
-            "created_at",
-            # virtual fields
-            "photo_files",
-            "photos",
+            "id", "company", "dealer", "item_name", "item_code",
+            "batch_number", "invoice_number", "purchase_date",
+            "client_company_name", "client_gst_number", "client_contact_person",
+            "client_contact_phone", "installation_date", "installed_by",
+            "location", "notes", "submitted_by", "submitted_by_role",
+            "submitted_by_name", "created_at", "photo_files", "photos",
         ]
         read_only_fields = ["id", "created_at", "photos"]
-        # Allow submitted_by to be written as ID if sent by frontend
-        extra_kwargs = {
-            'submitted_by': {'write_only': True}
-        }
+        extra_kwargs = {'submitted_by': {'write_only': True}}
 
-
-    # --- extra validation -------------------------------------------------
     def validate_photo_files(self, value):
         if len(value) > 3:
             raise serializers.ValidationError("You can upload a maximum of 3 photos.")
         return value
 
-    # --- life‑cycle overrides --------------------------------------------
     def create(self, validated_data):
         files = validated_data.pop("photo_files", [])
-        installation = super().create(validated_data)  # will run .clean()
+        installation = super().create(validated_data)
         for img in files:
             InstallationPhoto.objects.create(installation=installation, photo=img)
         return installation
 
-# ────────────────────────────────────────────────────────────────
-# Task
-# ────────────────────────────────────────────────────────────────
 
+# ────────────────────────────────────────────────────────────────
+# Task (unchanged)
+# ────────────────────────────────────────────────────────────────
 class TaskSerializer(serializers.ModelSerializer):
     assignee_name = serializers.ReadOnlyField(source='assignee.name')
     assigner_name = serializers.ReadOnlyField(source='assigner.name')
-    
-    assignee = serializers.PrimaryKeyRelatedField(
-        queryset=Employee.objects.all(), 
-        required=False, 
-        allow_null=True
-    )
-    assigner = serializers.PrimaryKeyRelatedField(
-        queryset=Company.objects.all(), 
-        required=False, 
-        allow_null=True
-    )
+    assignee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), required=False, allow_null=True)
+    assigner = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Task
@@ -238,31 +157,29 @@ class TaskSerializer(serializers.ModelSerializer):
         assigner = data.get('assigner')
         if assignee and assigner:
             if assignee.role != "COMPANY_EMPLOYEE":
-                raise serializers.ValidationError({
-                    "assignee": "Tasks can only be assigned to a Company Employee."
-                })
+                raise serializers.ValidationError({"assignee": "Tasks can only be assigned to a Company Employee."})
             if assignee.company != assigner:
-                raise serializers.ValidationError({
-                    "assignee": "This employee does not belong to the assigning company."
-                })
-        return data# Employee
+                raise serializers.ValidationError({"assignee": "This employee does not belong to the assigning company."})
+        return data
+
+
+# ────────────────────────────────────────────────────────────────
+# Employee (unchanged)
 # ────────────────────────────────────────────────────────────────
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
         fields = ["id", "department_name"]
 
-class EmployeeSerializer(serializers.ModelSerializer):
-    """Serializer for *Employee* accounts with secure password handling."""
 
+class EmployeeSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
     class Meta:
         model = Employee
-        fields = "__all__"  # list explicit fields in production
+        fields = "__all__"
         extra_kwargs = {"password": {"write_only": True}}
 
-    # --- life‑cycle overrides --------------------------------------------
     def create(self, validated_data):
         validated_data["password"] = make_password(validated_data["password"])
         return super().create(validated_data)
@@ -272,6 +189,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if password:
             validated_data["password"] = make_password(password)
         return super().update(instance, validated_data)
+
+
+# ────────────────────────────────────────────────────────────────
+# Generic Related Field (for Ticket)
+# ────────────────────────────────────────────────────────────────
 class GenericRelatedField(serializers.Field):
     def to_representation(self, obj):
         if obj is None:
@@ -283,7 +205,7 @@ class GenericRelatedField(serializers.Field):
         }
 
     def to_internal_value(self, data):
-        if data is None:                     # allow explicit null
+        if data is None:
             return None
         if not isinstance(data, dict):
             raise serializers.ValidationError("Expected dict with content_type + object_id.")
@@ -320,6 +242,8 @@ class TicketCategorySerializer(serializers.ModelSerializer):
         model = TicketCategory
         fields = '__all__'
 
+
+# ============================== TICKET ==============================
 class TicketSerializer(serializers.ModelSerializer):
     created_by = GenericRelatedField()
     assigned_to = GenericRelatedField(allow_null=True)
@@ -334,7 +258,7 @@ class TicketSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'category', 'category_name',
             'status', 'urgency', 'batch_number', 'item_name', 'item_code',
-            'invoice_number', 'purchase_date', 'remarks',
+            'invoice_number', 'purchase_date', 'remarks', 'vin',
             'created_by', 'assigned_to',
             'machine_installation', 'machine_installation_display',
             'created_at', 'started_at', 'resolved_at', 'feedback_notes', 'rating',
@@ -343,7 +267,6 @@ class TicketSerializer(serializers.ModelSerializer):
 
     # ============================== VALIDATION ==============================
     def validate(self, data):
-
         # ---------- Basic validations ----------
         if data.get('resolved_at') and data['resolved_at'] > timezone.now():
             raise serializers.ValidationError({
@@ -362,28 +285,153 @@ class TicketSerializer(serializers.ModelSerializer):
 
         # ---------- Assigned To Validation ----------
         assigned_to = data.get('assigned_to')
-
         if assigned_to is not None:
-            content_type = assigned_to.get('content_type')   # ContentType object
+            content_type = assigned_to.get('content_type')
             object_id = assigned_to.get('object_id')
-
-            # ✅ IMPORTANT FIX
             if content_type.model != 'employee':
                 raise serializers.ValidationError({
                     'assigned_to': "Tickets can only be assigned to company employees."
                 })
-
             try:
                 employee = Employee.objects.get(pk=object_id)
             except Employee.DoesNotExist:
                 raise serializers.ValidationError({
                     'assigned_to': f"Employee with id {object_id} does not exist."
                 })
-
             if employee.company is None:
                 raise serializers.ValidationError({
                     'assigned_to': "The selected employee is not a company employee."
                 })
+
+        # ---------- Dealer GST Validation (only on create) ----------
+        request = self.context.get('request')
+         #request = self.context.get('request')
+        if request and request.user.is_authenticated and not self.instance:
+            user = request.user
+            user_email = user.email
+
+            # Determine if the user is a dealer (admin or employee)
+            dealer_obj = None
+            user_gst = None
+            company_name = None
+
+            # Check dealer admin
+            dealer = Dealer.objects.filter(email=user_email).first()
+            if dealer:
+                dealer_obj = dealer
+                user_gst = dealer.gst_no
+                if dealer.company:
+                    company_name = dealer.company.name
+            else:
+                # Check dealer employee
+                emp = Employee.objects.filter(email=user_email, role='DEALER_EMPLOYEE').first()
+                if emp and emp.dealer:
+                    dealer_obj = emp.dealer
+                    user_gst = emp.dealer.gst_no
+                    if emp.dealer.company:
+                        company_name = emp.dealer.company.name
+
+            # Proceed only if we have a dealer with a company and GST number
+            if dealer_obj and company_name and user_gst:
+                company_lower = company_name.lower()
+                is_equipment = 'comptech equipment' in company_lower
+                is_motocorp = 'comptech motocorp' in company_lower
+
+                if is_equipment:
+                    batch = data.get('batch_number')
+                    if not batch:
+                        raise serializers.ValidationError(
+                            {'batch_number': 'Batch number is required for equipment dealers.'}
+                        )
+                    # Fetch GST from munim006_db using the batch number
+                    try:
+                        with connections['munim006_db'].cursor() as cursor:
+                            # ✅ Corrected query with TOP 1 for SQL Server
+                            query = """
+                                SELECT TOP 1 am.GSTNo
+                                FROM SalesInvoice a
+                                INNER JOIN SalesInvoiceDetails b ON a.SalesInvoiceId = b.SalesInvoiceId
+                                INNER JOIN SalesInvoiceBatchDetails sibd ON sibd.SalesInvoiceDetailsId = b.SalesInvoiceDetailsId
+                                INNER JOIN ItemMaster itm ON itm.ItemMasterId = b.ItemMasterId
+                                INNER JOIN AccountMaster am ON am.AccountMasterId = a.PartyAccountMasterId
+                                WHERE sibd.BatchNo = %s
+                                  AND itm.ItemGroupMasterId IN (2,3,5,8,10,11,12,13,14,16,29,20077,40103,40105,40107)
+                            """
+                            cursor.execute(query, [batch])
+                            row = cursor.fetchone()
+                            if row:
+                                db_gst = row[0]
+                            else:
+                                raise serializers.ValidationError(
+                                    {'batch_number': 'Invalid batch number or machine not found.'}
+                                )
+                    except Exception as e:
+                        raise serializers.ValidationError(
+                            {'batch_number': f'Error validating batch: {str(e)}'}
+                        )
+                    if user_gst.strip().upper() != (db_gst or '').strip().upper():
+                        raise serializers.ValidationError(
+                            {'gst': 'GST mismatch. You are not authorized to create this ticket.'}
+                        )
+
+                elif is_motocorp:
+                    vin = data.get('vin')
+                    if not vin:
+                        raise serializers.ValidationError(
+                            {'vin': 'VIN number is required for Motocorp dealers.'}
+                        )
+                    # Fetch GST from munim010_db using the VIN
+                    try:
+                        with connections['munim010_db'].cursor() as cursor:
+                            # ✅ Corrected query with ItemMaster join (same as in views.py)
+                            query = """
+                                SELECT GSTNo FROM (
+                                    SELECT am.GSTNo, COALESCE(
+                                        NULLIF(NULLIF(udf.UDF_VinNo_2116,'0'),''),
+                                        NULLIF(NULLIF(udf.UDF_Vinnumber_2116,'0'),'')
+                                    ) AS VinNo
+                                    FROM SalesInvoiceBatchDetails sibd
+                                    INNER JOIN SalesInvoiceDetails sid ON sid.SalesInvoiceDetailsId = sibd.SalesInvoiceDetailsId
+                                    INNER JOIN SalesInvoice si ON si.SalesInvoiceId = sid.SalesInvoiceId
+                                    INNER JOIN ItemMaster itm ON itm.ItemMasterId = sid.ItemMasterId
+                                    INNER JOIN AccountMaster am ON am.AccountMasterId = si.PartyAccountMasterId
+                                    LEFT JOIN DispatchDetails disd ON disd.DispatchDetailsId = sid.ReferenceId
+                                    LEFT JOIN DispatchBatchDetails disb ON disb.DispatchDetailsId = disd.DispatchDetailsId AND disb.BatchNo = sibd.BatchNo
+                                    LEFT JOIN DispatchBatchDetailsUDF udf ON udf.DispatchBatchDetailsId = disb.DispatchBatchDetailsId
+                                    WHERE itm.ItemGroupMasterId IN (110110,110108,110107,110102,110103,110115)
+                                    UNION
+                                    SELECT am.GSTNo, COALESCE(
+                                        NULLIF(NULLIF(udf.UDF_VinNo_2116,'0'),''),
+                                        NULLIF(NULLIF(udf.UDF_Vinnumber_2116,'0'),'')
+                                    ) AS VinNo
+                                    FROM DispatchBatchDetails disb
+                                    INNER JOIN DispatchDetails disd ON disd.DispatchDetailsId = disb.DispatchDetailsId
+                                    INNER JOIN Dispatch dis ON dis.DispatchId = disd.DispatchId
+                                    LEFT JOIN SalesInvoiceDetails sid ON sid.ReferenceId = disd.DispatchDetailsId
+                                    LEFT JOIN SalesInvoice si ON si.SalesInvoiceId = sid.SalesInvoiceId
+                                    LEFT JOIN AccountMaster am ON am.AccountMasterId = si.PartyAccountMasterId
+                                    LEFT JOIN ItemMaster itm ON itm.ItemMasterId = sid.ItemMasterId
+                                    LEFT JOIN DispatchBatchDetailsUDF udf ON udf.DispatchBatchDetailsId = disb.DispatchBatchDetailsId
+                                    WHERE itm.ItemGroupMasterId IN (110110,110108,110107,110102,110103,110115)
+                                ) Combined
+                                WHERE VinNo = %s
+                            """
+                            cursor.execute(query, [vin])
+                            row = cursor.fetchone()
+                            if row:
+                                db_gst = row[0]
+                            else:
+                                raise serializers.ValidationError(
+                                    {'vin': 'Invalid VIN number or machine not found.'}
+                                )
+                    except Exception as e:
+                        raise serializers.ValidationError(
+                            {'vin': f'Error validating VIN: {str(e)}'}
+                        )
+                    if user_gst.strip().upper() != (db_gst or '').strip().upper():
+                        raise serializers.ValidationError(
+                            {'gst': 'GST mismatch. You are not authorized to create this ticket.'}
+                        )
 
         return data
 

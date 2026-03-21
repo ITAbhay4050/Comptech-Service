@@ -406,6 +406,7 @@ class TicketCategory(models.Model):
 class ticket(models.Model):
     title = models.CharField(max_length=100)
     batch_number = models.CharField(max_length=100, blank=True, null=True)
+    vin = models.CharField(max_length=50, unique=True, blank=True, null=True, db_index=True)
     item_name = models.CharField(max_length=255, blank=True, null=True)
     item_code = models.CharField(max_length=100, blank=True, null=True)
     invoice_number = models.CharField(max_length=100, blank=True, null=True)
@@ -432,7 +433,7 @@ class ticket(models.Model):
     )
     assigned_to_object_id = models.PositiveIntegerField(null=True, blank=True)
     assigned_to = GenericForeignKey('assigned_to_content_type', 'assigned_to_object_id')
-
+     #vin = models.CharField(max_length=50, unique=True, blank=True, null=True) 
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True) 
     resolved_at = models.DateTimeField(null=True, blank=True)
@@ -484,5 +485,6 @@ class ticket(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
+
 
 

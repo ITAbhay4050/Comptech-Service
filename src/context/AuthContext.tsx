@@ -32,44 +32,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/login/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+  // AuthContext.tsx (updated snippet)
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Login failed" }));
-        throw new Error(err.error || "Invalid credentials");
-      }
+const login = async (email: string, password: string) => {
+  setIsLoading(true);
+  try {
+    const res = await fetch(`${API_BASE}/login/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
 
-      const data = await res.json();
-
-      const loggedInUser: AuthUser = {
-        id: String(data.employee_id ?? data.dealer_id ?? data.company_id),
-        name: data.name,
-        email,
-        role: data.role as UserRole,
-        token: data.token,
-        companyId: data.company_id ? String(data.company_id) : undefined,
-        dealerId: data.dealer_id ? String(data.dealer_id) : undefined,
-        gstNumber: data.gst_no || undefined,
-      };
-
-      localStorage.setItem("user", JSON.stringify(loggedInUser));
-      setUser(loggedInUser);
-      return true;
-    } catch (err) {
-      console.error("Login failed:", err);
-      return false;
-    } finally {
-      setIsLoading(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Login failed" }));
+      throw new Error(err.error || "Invalid credentials");
     }
-  };
 
+    const data = await res.json();
+
+    const loggedInUser: AuthUser = {
+      id: String(data.employee_id ?? data.dealer_id ?? data.company_id),
+      name: data.name,
+      email,
+      role: data.role as UserRole,
+      token: data.token,
+      companyId: data.company_id ? String(data.company_id) : undefined,
+      dealerId: data.dealer_id ? String(data.dealer_id) : undefined,
+      gstNumber: data.gst_no || undefined,
+      company_name: data.company_name, // ✅ ADD THIS LINE
+    };
+
+    localStorage.setItem("user", JSON.stringify(loggedInUser));
+    setUser(loggedInUser);
+    return true;
+  } catch (err) {
+    console.error("Login failed:", err);
+    return false;
+  } finally {
+    setIsLoading(false);
+  }
+};
   const logout = () => {
     localStorage.removeItem("user");
     setUser(null);

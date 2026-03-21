@@ -356,3 +356,4 @@ class TicketAdmin(admin.ModelAdmin):
 
 
 admin.site.register(TicketCategory)
+

@@ -13,19 +13,19 @@ urlpatterns = [
     # Authentication & Registration
     path("register/company/", views.RegisterCompany.as_view(), name="register_company"),
     path("companies/", views.CompanyListView.as_view(), name="company_list"),
-    path("machine-details-by-batch/", views.GetMachineDetailsByBatch.as_view(), name="machine_details_by_batch"),
+    path("machine-details-by-batch/", views.get_machine_details_by_batch, name="machine_details_by_batch"),
     path("register/employee/", views.RegisterEmployee.as_view(), name="register_employee"),
     path("login/", views.LoginView.as_view(), name="login"),
     path("send-otp/", views.SendOTPView.as_view(), name="send_otp"),
     path("verify-otp/", views.VerifyOTPView.as_view(), name="verify_otp"),
 
-    # Dealers (list + create)
+    # Dealers
     path("dealers/", views.DealerListView.as_view(), name="dealer_list"),
     path("dealers/<int:pk>/", views.DealerDetailView.as_view(), name="dealer_detail"),
     path("dealers/count/", views.DealerCountView.as_view(), name="dealer_count"),
     path("dealers/get-data-by-batch/", views.GetDealerDataByBatch.as_view(), name="get_dealer_data_by_batch"),
 
-    # Employees (detail only; list is handled by RegisterEmployee GET)
+    # Employees
     path("employees/<int:pk>/", views.EmployeeDetailView.as_view(), name="employee_detail"),
 
     # Machine Installations
@@ -37,8 +37,8 @@ urlpatterns = [
     # Party details
     path("party/get-details-by-gst/", views.GetPartyDetailsByGST.as_view(), name="get_party_details_by_gst"),
     path("departments/", views.get_departments, name="departments"),
-    path("machine-details-by-batch/", views.GetMachineDetailsByBatch.as_view(), name="machine_details_by_batch"),
+    path("machine-details/", views.GetMachineDetails.as_view(), name="machine_details"),
 
-    # Task & Employee routers
+    # Routers
     path("", include(router.urls)),
 ]
